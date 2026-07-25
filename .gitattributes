@@ -1,0 +1,19 @@
+# Normalise line endings so tracefiles don't break the host parser.
+* text=auto eol=lf
+
+*.vhd  text eol=lf
+*.vhdl text eol=lf
+*.xdc  text eol=lf
+*.py   text eol=lf
+*.tcl  text eol=lf
+*.md   text eol=lf
+*.txt  text eol=lf
+
+# Windows-only scripts keep CRLF
+*.bat  text eol=crlf
+
+# Binary
+*.pptx binary
+*.bit  binary
+*.dcp  binary
+*.png  binary

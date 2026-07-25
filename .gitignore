@@ -1,0 +1,57 @@
+# ---------------------------------------------------------------
+# Vivado — everything here is regenerable from scripts/build.tcl
+# ---------------------------------------------------------------
+vivado/
+*.jou
+*.log
+*.str
+*.dcp
+*.bit
+*.bin
+*.ltx
+*.pb
+*.wdb
+*.wcfg
+*.vds
+*.rpt
+.Xil/
+.srcs/
+.runs/
+.gen/
+.cache/
+.hw/
+.ip_user_files/
+.sim/
+.ioplanning/
+*.xpr
+*.xsa
+
+# Legacy nested folder (pre-restructure)
+Scan Chain/
+
+# ---------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# ---------------------------------------------------------------
+# Test output — committed results live in results/ explicitly
+# ---------------------------------------------------------------
+*.out
+scan_output_*.txt
+
+# ---------------------------------------------------------------
+# OS / editor
+# ---------------------------------------------------------------
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
+*~
+*.swp

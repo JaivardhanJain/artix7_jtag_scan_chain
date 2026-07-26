@@ -171,7 +171,13 @@ Six phases, ~11–12 hours: make it build reproducibly, fix the two real bugs, h
 
 ## Credits
 
-Artix-7 port and tooling by **JJ (Jaivardhan Jain)**. Based on a MAX 10 Virtual-JTAG scan chain flow developed for undergraduate digital-design labs.
+**Original implementation — Anubhav Bhura, Wadhwani Electronics Laboratory, IIT Bombay.**
+
+The scan chain architecture, the `BSCANE2`-based `TopLevel.vhd` harness, the FTDI MPSSE host driver (`scan_bscane2.py`), the tracefile format, and the Artix-7 port of the original MAX 10 Virtual-JTAG flow are all his work. That includes every design decision this repository is built on: the two-phase `io` multiplexing scheme, the split-the-MSB-off trick for the final bit in Shift-DR, and the USB command batching that makes 4096-vector runs practical.
+
+**This repository — JJ (Jaivardhan Jain).** Restructuring, documentation, defect analysis, and the improvements tracked in [docs/ROADMAP.md](docs/ROADMAP.md). No functional changes have been made to the original HDL or host code as of the initial commit; the [known issues](docs/KNOWN_ISSUES.md) are documented findings from reading the code, not regressions.
+
+Developed for undergraduate digital-design labs at IIT Bombay.
 
 ## License
 

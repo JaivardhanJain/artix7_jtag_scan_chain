@@ -181,4 +181,4 @@ Developed for undergraduate digital-design labs at IIT Bombay.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+No license is currently granted. The original code belongs to its author and the Wadhwani Electronics Laboratory, IIT Bombay; a license would be theirs to choose. Until one is added, this repository is viewable but not licensed for reuse or redistribution.

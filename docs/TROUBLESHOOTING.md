@@ -13,7 +13,7 @@ The FTDI device isn't reachable. In order of likelihood:
 3. **Wrong channel.** `ftd.open(0)` opens channel A. Some boards expose JTAG on channel B — try `ftd.open(1)`.
 4. **Board not powered or cable not seated.**
 
-There is no friendly error message for this yet (Known Issues #7).
+There is no friendly error message for this yet (Known Issues #8).
 
 ## IDCODE prints as all `f`s or all `0`s
 

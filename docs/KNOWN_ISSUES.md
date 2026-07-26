@@ -127,7 +127,24 @@ No such file exists anywhere in the project. `examples/alu/ALU.vhd` is an unrela
 
 ---
 
-## 7. Host script hygiene
+## 7. Vestigial constraints file
+
+**Severity: low, but it hides future errors.**
+
+`hdl/constraints.xdc` contains exactly two lines:
+
+```tcl
+set_property IOSTANDARD LVCMOS33 [get_ports state_out[*]]
+set_property SEVERITY Warning [get_drc_checks UCIO-1]
+```
+
+Both are dead. `state_out` was a debug port that is now commented out in `TopLevel.vhd`, so `get_ports state_out[*]` matches nothing. The `UCIO-1` downgrade existed to suppress the unconstrained-I/O DRC error that port used to cause.
+
+`TopLevel` has no ports at all, so the correct XDC is **empty** — no I/O constraints and no DRC suppression. Leaving `UCIO-1` downgraded is the real problem: it will silently hide genuine unconstrained-port errors in any DUT added later.
+
+---
+
+## 8. Host script hygiene
 
 **Severity: low each, but they add up.**
 
@@ -145,7 +162,7 @@ No such file exists anywhere in the project. `examples/alu/ALU.vhd` is an unrela
 
 ---
 
-## 8. Missing: any way to test without hardware
+## 9. Missing: any way to test without hardware
 
 There is no testbench. Every change to the scan logic or a tracefile requires a full synthesis, implementation, bitstream and program cycle before you learn whether the bit ordering was right.
 

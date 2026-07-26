@@ -107,4 +107,4 @@ The script writes one line per vector:
 0001000 0 Success
 ```
 
-There is currently no summary line and no non-zero exit code on failure — see Known Issues #7.
+There is currently no summary line and no non-zero exit code on failure — see Known Issues #8.

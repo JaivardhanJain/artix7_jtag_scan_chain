@@ -55,6 +55,7 @@ Full signal-level detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | `examples/` | Per-lab DUT wrappers and their tracefiles. One folder per design. |
 | `results/` | Captured output from real hardware runs. |
 | `scripts/` | Headless Vivado build and program scripts. |
+| `sim/` | Self-checking testbench, an offline Python model, and run scripts. |
 | `docs/` | Architecture, tracefile format, migration notes, troubleshooting, roadmap. |
 | `assets/` | Presentation material. |
 | `vivado/` | *Untracked.* Local Vivado project dirs — regenerable, gitignored. |
@@ -163,7 +164,7 @@ Nine issues in total. Full write-ups and fixes: [docs/KNOWN_ISSUES.md](docs/KNOW
 
 ## Changes to the original implementation
 
-This section records every deviation from the code as inherited: what changed, what problem in the original it solves, and how the change will be proven correct. Nothing here has been validated on hardware yet — all three items are code-complete and awaiting the bench session.
+This section records every deviation from the code as inherited: what changed, what problem in the original it solves, and how the change will be proven correct. **Nothing here has been validated on hardware yet.** The scan protocol logic has been verified against an offline model (item 4); the VHDL itself has not been compiled.
 
 ### 1. Scan logic split into `scan_core.vhd`
 
@@ -198,6 +199,20 @@ It worked, but only because the clock divider (`0x3B`, ~500 kHz) left enough sla
 **Why the host needs no change.** Moving the launch edge does not shift the data. After Capture-DR on rising edge *N*, the falling edge of *N* launches bit 0; the host samples it on rising edge *N+1*, half a clock later, by which point it has been stable. Same bits, same order, no added latency — only the launch edge moves. The timing walkthrough is in the header of `scan_core.vhd`.
 
 **Verification.** Two parts. First, the 46-vector parity run must still match byte-for-byte — if the fix had introduced an off-by-one, every vector would shift. Second, sweep the clock divider down from `0x3B` and record the fastest reliable setting before and after. A correct fix should raise the safe ceiling, and that delta is the project's one concrete, measurable improvement claim.
+
+### 4. Simulation testbench — addresses [issue #9](docs/KNOWN_ISSUES.md)
+
+**What.** `sim/tb_scan_core.vhd`, a self-checking testbench that plays the role `BSCANE2` plays on hardware, plus `sim/run_sim.bat` (xsim) / `sim/run_sim.sh` (GHDL) and `sim/model_scan_core.py`, a Python cycle model of the same logic.
+
+**Why — the problem in the original.** There was no testbench of any kind. Every change to the scan logic, the width constants or a tracefile required a full synthesis → implementation → bitstream → program cycle before you learned whether the bit ordering was right. That ten-minute loop is the biggest practical drag on the project and the main reason it's hard for anyone else to pick up.
+
+**What it checks.** An exhaustive scan of all 256 vectors; desync recovery via TAP reset and via deselect; and a bit-order sensitivity sweep. Critically, it samples `tdo` while `tck` is low, immediately before the rising edge — exactly what the host's MPSSE `0x2C`/`0x2E` reads see — so the falling-edge launch fix is exercised the same way hardware will exercise it.
+
+**Verification — and this part is already done.** `model_scan_core.py` runs the same sequence against a Python model and passes: 264 checks, 0 errors, 192/256 reversed vectors correctly detected as wrong. It also models the *original* code (`with_fixes=False`) and confirms that the interrupt scenario desyncs it — so fix #2 above is demonstrated against a model of the defect rather than merely argued.
+
+The model also earned its keep immediately: the first version of the bit-order test used a single vector for which reversal was undetectable under the golden model, so it would have passed a testbench that was blind to bit order. That test is now a sweep.
+
+**What it does not prove.** The model is not a simulator — it cannot catch VHDL syntax or elaboration errors, and it assumes the RTL does what the model says. The VHDL testbench itself has not been compiled; no VHDL toolchain was available here. Running `sim/run_sim.bat` is the first thing to do at your machine, before any hardware work.
 
 ### Still unchanged
 

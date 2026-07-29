@@ -168,7 +168,7 @@ Both are dead. `state_out` was a debug port that is now commented out in `TopLev
 
 ## 9. Missing: any way to test without hardware
 
-> **STATUS: unblocked.** The scan logic now lives in `hdl/scan_core.vhd`, which contains no vendor primitives and can be simulated without `unisim`. The testbench itself is not yet written.
+> **STATUS: addressed, pending a compile.** The scan logic lives in `hdl/scan_core.vhd` (no vendor primitives), and `sim/tb_scan_core.vhd` now exercises it — exhaustive scan, desync recovery via reset and via deselect, and a bit-order sweep. `sim/model_scan_core.py` runs the same sequence offline and passes (264 checks, 0 errors). The VHDL testbench has not yet been compiled; run `sim/run_sim.bat`.
 
 There is no testbench. Every change to the scan logic or a tracefile requires a full synthesis, implementation, bitstream and program cycle before you learn whether the bit ordering was right.
 

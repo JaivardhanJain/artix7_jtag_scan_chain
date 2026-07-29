@@ -63,9 +63,11 @@ Refactor `host/scan_bscane2.py` into `host/scanchain.py`:
 
 ## Phase 5 — Verify without hardware (~2 h)
 
-- [ ] **`sim/tb_scanchain.vhd`** — a behavioural testbench that fakes the BSCANE2 TAP handshake (CAPTURE/SHIFT/UPDATE) and shifts vectors through the real `TopLevel` + DUT.
+- [x] **`sim/tb_scan_core.vhd`** — a behavioural testbench that fakes the BSCANE2 TAP handshake (CAPTURE/SHIFT/UPDATE) and shifts vectors through the real `scan_core` + a modelled DUT. Written; **not yet compiled**. Plus `run_sim.bat` / `run_sim.sh`.
+- [x] **`sim/model_scan_core.py`** — not originally planned. A Python cycle model of the same logic that runs with no toolchain in under a second, and models the pre-fix design too, so the desync fix is demonstrated against the defect. Passing: 264 checks, 0 errors.
+- [ ] Compile and run the VHDL testbench (`sim/run_sim.bat`). This is the first thing to do at a machine with Vivado.
 
-  Highest-value single addition in the project. It turns a 10-minute synthesise-implement-program-test round trip into a few seconds of simulation, and it catches the two most common student errors — wrong bit order and wrong width — before hardware is involved. The MAX 10 flow never had this.
+  This was the highest-value single addition in the project. It turns a 10-minute synthesise-implement-program-test round trip into a few seconds of simulation, and it catches the two most common student errors — wrong bit order and wrong width — before hardware is involved. The MAX 10 flow never had this.
 - [ ] Optional: `openFPGALoader` path so the board can be programmed with no Vivado install — the closest analogue to MAX 10's pre-built `scan-25k.svf`.
 
 **Exit criterion:** a wrong bit order is caught in simulation, not on the bench.

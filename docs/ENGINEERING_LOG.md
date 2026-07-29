@@ -244,6 +244,79 @@ Every claim above is a design argument, not a measurement. GHDL is not installab
 
 Until the parity run and the interrupt test both pass, D1 and D2 are recorded as *fixed in HDL, pending hardware verification* — not closed.
 
-### 5.6 Also updated
+### 5.6 Also updated (see also entry 006)
 
 `scripts/build.tcl` now adds `hdl/scan_core.vhd` alongside `TopLevel.vhd`. Easy to miss, and it would have produced a confusing "entity scan_core is not bound" at elaboration.
+
+---
+
+## Entry 006 — 2026-07-29 — Simulation: testbench, offline model, and a bug the model found
+
+Addresses D9. Also produces the first actual *verification* of anything in this project — entry 005's changes were design arguments; some of them are now checked.
+
+### 6.1 `sim/tb_scan_core.vhd`
+
+A self-checking testbench that plays the role `BSCANE2` plays on hardware: it drives `tck`, `capture`, `shift`, `update`, `jtag_reset` and `sel`, and reads `tdo`. Possible only because entry 005 moved the logic into a vendor-neutral entity — no `unisim`, no primitive model.
+
+The important detail is the sampling discipline: **`tdo` is sampled while `tck` is low, immediately before the rising edge.** That is exactly what an MPSSE `0x2C`/`0x2E` read sees. A testbench that sampled at a convenient moment instead would pass regardless of which edge the design launches on, and would have been useless for checking D2.
+
+Four tests:
+
+| # | What | Why it's there |
+|---|---|---|
+| 1 | Exhaustive scan, all 256 vectors | Shift ordering, phase alternation, capture timing, falling-edge launch |
+| 2 | Abandon a vector, `jtag_reset`, run a normal vector | The simulation equivalent of the Ctrl-C bench test — **fails on the original code** |
+| 3 | Same, recovering via `sel = '0'` | The path taken when Hardware Manager takes the chain between runs |
+| 4 | Bit-order sweep | Keeps 1–3 honest |
+
+### 6.2 `sim/model_scan_core.py` — not in the original plan
+
+A Python re-implementation of `scan_core`'s cycle semantics, driven by the same sequence. Motivation was practical: no VHDL toolchain was available in the environment these edits were made in, and "write it and hope" was not an acceptable state to leave the repository in. A model that runs anywhere in under a second is a poor substitute for a simulator but a good substitute for nothing.
+
+It carries a `with_fixes=False` mode reproducing the **original** design, where `RESET` and `SEL` were `open`. Test 2b runs the interrupt scenario against it and confirms it desyncs:
+
+```
+TEST 2b original code: after interruption got [0,0,0,0], expected [1,1,1,1]
+                       -> desynced as expected
+```
+
+That matters more than it looks. D1 was found by reading code and reasoning about a failure mode nobody had observed. This is the first evidence the failure mode is real rather than a plausible story about pointer arithmetic in someone else's design.
+
+Full result:
+
+```
+TEST 1 exhaustive scan      : 256 vectors, 0 errors
+TEST 2 desync via TAP reset : 0 errors
+TEST 2b original code       : desynced as expected
+TEST 3 desync via deselect  : 0 errors
+TEST 4 bit-order sensitivity: 192/256 reversed vectors detected as wrong
+=== 264 checks, 0 errors ===
+```
+
+### 6.3 The model immediately found a bug — in the testbench
+
+The first version of test 4 shifted **one** vector in backwards (`0xD2`) and asserted the result differed. The model reported it did *not* differ.
+
+The cause is a property of the golden model, `low_slice xor high_slice`. Reversing all 8 bits maps the low slice onto the reverse of the high slice and vice versa, so the result is the bit-reversal of the correct result. Whenever that result happens to be a palindrome — `1111`, `0000`, `0110`, … — reversal is undetectable. 64 of 256 vectors have that property, and `0xD2` is one of them.
+
+So the test would have passed a testbench that was completely blind to bit order, which is precisely the failure it exists to prevent. Switching the golden model to an adder was considered and rejected — it only reduces the blind set from 64 to 44, and leaves the test dependent on a lucky vector and on the widths never changing.
+
+Test 4 is now a sweep over all vectors requiring at least one detection. It reports 192/256, and the count itself is diagnostic: a sudden drop would mean the golden model has drifted toward reversal symmetry.
+
+The general lesson, worth stating because it applies to the rest of this project: a negative test that can pass for the wrong reason is worse than no negative test, because it manufactures confidence.
+
+### 6.4 What is now verified, and what is not
+
+**Verified.** The scan protocol logic — bit ordering, phase alternation, capture and update timing, and the recovery behaviour of both D1 fixes — against an independent model, exhaustively over the input space.
+
+**Not verified.**
+
+| | Why not |
+|---|---|
+| The VHDL compiles | No toolchain available here. `sim/run_sim.bat` is the first thing to run at a machine with Vivado. |
+| `BSCANE2`'s real pulse timing | The testbench substitutes for it. If the primitive's CAPTURE/SHIFT/UPDATE behaviour differs from what's modelled, only hardware shows it. |
+| The falling-edge launch at speed | The model proves the launch edge is *logically* right. It says nothing about the maximum safe TCK frequency; that still needs the divider sweep. |
+| Synthesis | Simulating and synthesising are different. A green testbench does not guarantee `build.tcl` succeeds. |
+| Anything host-side | MPSSE construction, batching and decoding are untouched by all of this. |
+
+D1 and D2 stay recorded as *fixed in HDL, pending hardware verification*. The model raises confidence; it does not close them.

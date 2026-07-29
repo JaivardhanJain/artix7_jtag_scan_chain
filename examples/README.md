@@ -1,22 +1,31 @@
 # Examples
 
-One folder per design under test. Each folder holds a `DUT.vhd` wrapper, the design's own source files, and a `TRACEFILE.txt`.
+One folder per design under test. Each holds a `DUT.vhd` wrapper, the design's own sources, and a `TRACEFILE.txt`.
 
-| Example | Widths (in/out) | Status |
-|---|---|---|
-| [`string_detector/`](string_detector/) | 7 / 1 | **Does not elaborate** — `StringDetector.vhd` is missing (Known Issues #5). Tracefile and a captured hardware result are present. |
-| [`alu/`](alu/) | 8 / 6 | Source present, no wrapper and no tracefile yet. |
+| Example | Widths (in/out) | Vectors | Status |
+|---|---|---|---|
+| [`seq1011/`](seq1011/) | 3 / 1 | 602 | **Complete and self-contained.** The example to start from. |
+| [`string_detector/`](string_detector/) | 7 / 1 | 46 | Sources **not published** — see below. Tracefile and a captured hardware result are here. |
+| [`alu/`](alu/) | 8 / 6 | — | Source only. No wrapper, no tracefile yet. |
+
+## Why `string_detector` is incomplete here
+
+Its sources are filled-in solutions to a teaching lab that may still be assigned. Publishing them would hand out answers, so they are deliberately excluded from version control — `.gitignore` lists them explicitly rather than silently dropping them.
+
+Everything *about* the example is still committed: the `DUT.vhd` wrapper, the 46-vector tracefile, the captured hardware result in `results/`, and the documentation. Only the four detector files are withheld. If you have them, drop them in `examples/string_detector/` and it builds.
+
+`seq1011` exists so this restriction costs a fresh clone nothing: it exercises the same capabilities — a clocked Mealy FSM, a reset, a generated tracefile — with a design written for this repository.
 
 ## Adding a new example
 
-1. Create a folder. Put your design's VHDL in it.
-2. Write a `DUT.vhd` wrapper that flattens all inputs into one `input_vector` and all outputs into one `output_vector`. **Document the bit mapping in a comment at the top** — it isn't recoverable from the tracefile.
-3. Set `number_of_inputs` and `number_of_outputs` in `hdl/TopLevel.vhd` to match.
-4. Write a `TRACEFILE.txt` — see [../docs/TRACEFILE_FORMAT.md](../docs/TRACEFILE_FORMAT.md).
-5. Build, program, run.
+1. Create a folder and put your design's VHDL in it.
+2. Write a `DUT.vhd` wrapper flattening all inputs into one `input_vector` and all outputs into one `output_vector`. **Document the bit mapping in a header comment** — it is not recoverable from the tracefile, and getting it wrong produces a run where everything fails for no visible reason.
+3. Set `number_of_inputs` / `number_of_outputs` in `hdl/TopLevel.vhd` to match.
+4. Write a `TRACEFILE.txt` — see [../docs/TRACEFILE_FORMAT.md](../docs/TRACEFILE_FORMAT.md). Past a few dozen vectors, generate it from a golden model rather than typing it; `seq1011/gen_tracefile.py` is a worked example.
+5. Validate before touching hardware: `python host/scanchain.py --dry-run -t <tracefile>`.
 
-Steps 2 and 3 are what `scripts/new_lab.py` will generate (Roadmap Phase 4).
+Steps 2 and 3 are what `scripts/new_lab.py` will generate ([roadmap](../docs/ROADMAP.md) Phase 4).
 
-## A note on coursework
+## If your DUT is clocked
 
-These are teaching-lab designs. If you are currently enrolled in a course that assigns them, check your institution's academic-integrity policy before using or publishing solution files.
+Expose the clock as an input bit and write two vectors per cycle. For a **Mealy** output the expected value differs between the two — see the trap documented in [`seq1011/README.md`](seq1011/README.md), which cost 65 wrong vectors before it was caught.

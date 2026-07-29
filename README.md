@@ -52,7 +52,7 @@ Full signal-level detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 |---|---|
 | `hdl/` | The reusable harness — `TopLevel.vhd` (BSCANE2 wiring), `scan_core.vhd` (all scan logic, vendor-neutral), `constraints.xdc`. |
 | `host/` | `scanchain.py` (current driver), `scan_bscane2.py` (original, kept as reference), and offline tests. |
-| `examples/` | Per-lab DUT wrappers and their tracefiles. One folder per design. |
+| `examples/` | Per-lab DUT wrappers and their tracefiles. Start with `seq1011`, which is complete and self-contained. |
 | `results/` | Captured output from real hardware runs. |
 | `scripts/` | Headless Vivado build and program scripts. |
 | `sim/` | Self-checking testbench, an offline Python model, and run scripts. |
@@ -103,10 +103,10 @@ constant number_of_outputs : integer := 1;
 ### 2. Build the bitstream
 
 ```
-vivado -mode batch -source scripts/build.tcl -tclargs examples/string_detector
+vivado -mode batch -source scripts/build.tcl -tclargs examples/seq1011
 ```
 
-Or open Vivado, create a project with `hdl/TopLevel.vhd` + your DUT files, set `TopLevel` as top, and generate a bitstream.
+Or open Vivado, create a project with `hdl/TopLevel.vhd` + `hdl/scan_core.vhd` + your DUT files, set `TopLevel` as top, and generate a bitstream.
 
 ### 3. Program the board
 
@@ -117,7 +117,7 @@ vivado -mode batch -source scripts/program.tcl
 ### 4. Run the test
 
 ```
-python host/scanchain.py -t examples/string_detector/TRACEFILE.txt -o output.txt
+python host/scanchain.py -t examples/seq1011/TRACEFILE.txt -o output.txt
 ```
 
 The script prints the IDCODE it read, writes one line per vector, and finishes with a summary:
@@ -135,7 +135,7 @@ Columns are: input vector, value read back, verdict. Exit status is 0 only if ev
 To check a tracefile without a board attached:
 
 ```
-python host/scanchain.py --dry-run -t examples/string_detector/TRACEFILE.txt
+python host/scanchain.py --dry-run -t examples/seq1011/TRACEFILE.txt
 ```
 
 ---
@@ -165,7 +165,7 @@ Bit order is **MSB-first as written**, i.e. the leftmost character is `input_vec
 | 2 | TDO launched and sampled on the same clock edge | Works at the current divider by timing luck, not design. | **Fixed, simulation-verified** |
 | 3 | Mask column parsed but never applied | Don't-care outputs are compared as hard values. | **Fixed, offline-tested** |
 | 4 | Read parser reuses widths leaked from the write loop | Ragged tracefiles mis-parse instead of erroring. | **Fixed, offline-tested** |
-| 5 | `StringDetector.vhd` is not in this repo | `examples/string_detector` will not elaborate as-is. | Open |
+| 5 | `StringDetector.vhd` is not in this repo | `examples/string_detector` will not elaborate as-is. | **Resolved** — recovered and verified; kept local, `seq1011` added as a publishable substitute |
 
 Nine issues in total. Full write-ups and fixes: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md). How each was found, and which phase of the plan addresses it: [docs/ENGINEERING_LOG.md](docs/ENGINEERING_LOG.md). What has actually been measured, and how strong the evidence is: [docs/RESULTS.md](docs/RESULTS.md).
 

@@ -421,3 +421,59 @@ Also still out of reach: `BSCANE2`'s real pulse timing, actual clock margins, sy
 The Vivado install is **2020.2**, not the 2023.2 guessed earlier. Nothing in the project depends on a newer version — the HDL is plain VHDL-93 and the testbench uses no 2008 constructs. `scripts/build.tcl` defaults to `xc7a35tftg256-1`, which 2020.2 supports.
 
 `xelab` also emitted `invalid command name "%"` from its Webtalk telemetry step. That is Xilinx failing to quote a path containing spaces (`Wadhwani Lab Research`); it occurs after elaboration completes and does not affect the result. Documented in [TROUBLESHOOTING.md](TROUBLESHOOTING.md) so it is not mistaken for a real failure later.
+
+---
+
+## Entry 009 — 2026-07-29 — D5 resolved: sources recovered, and a substitute example
+
+### 9.1 Recovery
+
+The missing `StringDetector` sources were located in the original MAX 10 lab material (a `lab7` tree, separate from this project). That tree is the complete pre-port flow — its `TopLevel.vhdl` still instantiates Altera's `v_jtag`, in the Vivado folders as well as the Quartus ones, which confirms the Artix-7 port never touched it.
+
+Two variants existed, Wednesday and Friday, with different tracefiles. This repository's `TRACEFILE.txt` is a byte-for-byte match with the **Friday** variant, so that is the one installed. Guessing would have produced 46 confusing failures.
+
+The design is three independent Mealy FSMs — `run`, `cry`, `broom` — with their outputs ORed. Subsequence rather than substring detection: on a mismatch each FSM holds its state. `broom` needs an extra state for the doubled `o`.
+
+### 9.2 Verified before use, not assumed
+
+Recovering a file is not the same as recovering the *right* file. Replaying all 46 vectors through a model of the three FSMs reproduces the expected column exactly — 0 mismatches across the 44 unmasked vectors. The hidden stimulus decodes to `" bringunocardsfrommybag"`, which contains all three target subsequences. That is conclusive: a wrong or differently-parameterised design would not reproduce 44 expected values by chance.
+
+### 9.3 The publication problem, and `examples/seq1011`
+
+The recovered files are filled-in coursework solutions — `RunDetector.vhdl` still carries its `-- Fill in:` template comments with the answers written underneath. This repository is intended to be public, and the lab may still be assigned.
+
+They are therefore installed locally so the example builds, and **explicitly listed in `.gitignore`** rather than quietly omitted, so the exclusion is visible and deliberate. Everything else about the example stays committed: the wrapper, the tracefile, the captured hardware result, the documentation.
+
+That alone would leave a public clone with no working example, so `examples/seq1011` was added: an overlapping `1011` sequence detector written for this repository. It exercises the same capabilities — clocked Mealy FSM, synchronous reset, generated tracefile — and is not coursework.
+
+### 9.4 The new example's tracefile was wrong, and the cross-check caught it
+
+Worth recording in full, because the failure mode is subtle and would have been diagnosed as a hardware problem.
+
+`gen_tracefile.py` initially computed one expected output per stimulus bit and wrote it to **both** vectors of the clock pair. An independent check — transcribing `Seq1011.vhd`'s case statement directly from the VHDL and replaying the tracefile through it — disagreed on **65 of 600** vectors.
+
+The generator was wrong. The scan chain captures one output per vector, so a clocked DUT needs two vectors per cycle, and for a Mealy output the correct expectation differs between them:
+
+| Vector | State | Expected output |
+|---|---|---|
+| clock low | pre-edge | `mealy(state, din)` — the real detection for this bit |
+| clock high | post-edge | `mealy(next_state(state, din), din)` — same input, advanced state |
+
+Writing the same value twice is the natural first guess. The bundled string-detector tracefile shows the correct shape and could have been read as a specification: its detections appear as `1` on the clock-low line and `0` on the clock-high line following.
+
+Two things this reinforces. First, the value of a cross-check derived from a *different* source than the artefact being checked — the transcription came from the VHDL text, not from the generator's model, so a shared misconception could not hide. Second, on hardware this would have presented as 65 scattered failures on an otherwise working harness, which is close to the worst diagnostic signal available: not a clean failure pointing at the tracefile, but a pattern that looks like marginal timing.
+
+After the fix: 600 unmasked vectors, 0 mismatches.
+
+### 9.5 Also changed
+
+`scripts/build.tcl` now globs `*.vhdl` as well as `*.vhd`. The recovered lab files use the longer extension and were kept under their original names for provenance; without this they would simply not have been added to the project, and the failure would have surfaced as an unbound-entity error at elaboration.
+
+### 9.6 Verification status
+
+| | Status |
+|---|---|
+| Recovered sources match the tracefile | **Verified** — 44/44 unmasked vectors |
+| `seq1011` tracefile matches its RTL | **Verified** — 600/600, against a transcription of the VHDL |
+| Either design compiles | **Not verified** — neither has been through a VHDL toolchain |
+| Either runs on hardware | **Not attempted** |

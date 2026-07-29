@@ -109,7 +109,9 @@ A tracefile with a ragged line silently decodes at the wrong width and reports p
 
 ## 5. `StringDetector.vhd` is missing from the repository
 
-**Severity: blocking for that example.**
+**Severity: was blocking for that example.**
+
+> **STATUS: resolved.** The sources were recovered from the original MAX 10 lab material and verified — replaying all 46 tracefile vectors through a model of the recovered FSMs reproduces the expected column exactly (0 mismatches on the 44 unmasked vectors). They are installed locally but **gitignored**, being filled-in coursework solutions; `examples/seq1011` was added as a complete, publishable substitute so a fresh clone still has a working example. Description below is of the original state.
 
 `examples/string_detector/DUT.vhd` instantiates:
 

@@ -1,0 +1,50 @@
+library ieee;
+use ieee.std_logic_1164.all;
+
+--------------------------------------------------------------------------------
+-- DUT wrapper for scan chain testing.
+--
+-- Tracefile bit layout:  < din >< reset >< clock >
+--
+--   input_vector(2) = din
+--   input_vector(1) = reset
+--   input_vector(0) = clock
+--   output_vector(0) = detect
+--
+-- Set in hdl/TopLevel.vhd:
+--   number_of_inputs  := 3
+--   number_of_outputs := 1
+--
+-- This comment is the only record of the bit mapping -- it cannot be recovered
+-- from the tracefile alone. Always write one.
+--------------------------------------------------------------------------------
+
+entity DUT is
+  port (
+    input_vector  : in  std_logic_vector(2 downto 0);
+    output_vector : out std_logic_vector(0 downto 0)
+  );
+end entity DUT;
+
+architecture Structural of DUT is
+
+  component Seq1011 is
+    port (
+      din    : in  std_logic;
+      reset  : in  std_logic;
+      clock  : in  std_logic;
+      detect : out std_logic
+    );
+  end component;
+
+begin
+
+  uut : Seq1011
+    port map (
+      din    => input_vector(2),
+      reset  => input_vector(1),
+      clock  => input_vector(0),
+      detect => output_vector(0)
+    );
+
+end architecture Structural;

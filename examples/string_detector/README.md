@@ -2,6 +2,12 @@
 
 A sequential design that asserts its output when a target character sequence is seen on a 5-bit input.
 
+## The design
+
+Three independent Mealy FSMs — `RunDetector`, `CryDetector`, `BroomDetector` — detecting the subsequences `run`, `cry` and `broom` in a stream of 5-bit characters (a=1 … z=26, space=0). Their outputs are ORed. Subsequence, not substring: on a mismatch each FSM holds its state rather than falling back to the start.
+
+`broom` is the interesting one — the doubled `o` needs its own state.
+
 ## Interface
 
 ```
@@ -20,7 +26,15 @@ constant number_of_outputs : integer := 1;
 
 ## Status
 
-⚠️ **This example does not currently elaborate.** `DUT.vhd` instantiates a `StringDetector` component that is not present in this repository — see [../../docs/KNOWN_ISSUES.md](../../docs/KNOWN_ISSUES.md) #5. Supply `StringDetector.vhd` with the port list above to build it.
+**Sources recovered, but deliberately not published.** `StringDetector.vhdl` and its three sub-detectors (`RunDetector`, `CryDetector`, `BroomDetector`) were recovered from the original MAX 10 lab material and are present in a local working copy, so this example builds and runs. They are **gitignored**: they are filled-in solutions to a teaching lab that may still be assigned. See [../README.md](../README.md).
+
+If you have the four detector files, drop them in this folder and it builds. Otherwise use [`../seq1011`](../seq1011), which is complete and self-contained.
+
+### Provenance
+
+The recovered sources were confirmed correct before use, not assumed: replaying all 46 tracefile vectors through a model of the three FSMs reproduces the expected column exactly, 0 mismatches on the 44 unmasked vectors. The hidden input stream decodes to `" bringunocardsfrommybag"`, which contains `b-r-o-o-m`, `r-u-n` and `c-r-y` as subsequences — the three patterns the detector ORs together.
+
+Two variants of the lab existed with different tracefiles. This repository's tracefile is a byte-for-byte match with the Friday variant, which is the one installed.
 
 ## Tracefile
 

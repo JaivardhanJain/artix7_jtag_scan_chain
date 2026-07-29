@@ -42,7 +42,9 @@ add_files -norecurse [list \
     [file join $repo_root hdl TopLevel.vhd]]
 
 # --- DUT and its sources -------------------------------------------------
-set dut_sources [glob -nocomplain [file join $repo_root $example_dir *.vhd]]
+set dut_sources [concat \
+    [glob -nocomplain [file join $repo_root $example_dir *.vhd]] \
+    [glob -nocomplain [file join $repo_root $example_dir *.vhdl]]]
 if {[llength $dut_sources] == 0} {
     puts "ERROR: no .vhd files found in $example_dir"
     exit 1

@@ -12,7 +12,7 @@ For the state this project was inherited in, how each defect was found, why the 
 
 The project as inherited will not elaborate. This has to come first or nothing below is verifiable.
 
-- [ ] Recover or rewrite `StringDetector.vhd` (Known Issues #5).
+- [x] Recover or rewrite `StringDetector.vhd` (Known Issues #5). **Recovered** from the original MAX 10 lab material and verified against the tracefile. Kept local and gitignored (coursework solutions); `examples/seq1011` added as a complete publishable substitute.
 - [ ] Decide the fate of `examples/alu/ALU.vhd` — keep as a second worked example with its own tracefile, or drop it.
 - [ ] Confirm the physical part from the IDCODE the script prints: `xc7a35tftg256` or `xc7a15tftg256` (Known Issues #6).
 - [ ] Replace `hdl/constraints.xdc` with an empty file — no `state_out`, no `UCIO-1` suppression.

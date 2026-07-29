@@ -30,6 +30,15 @@ vivado/
 Scan Chain/
 
 # ---------------------------------------------------------------
+# Coursework solutions -- present locally so the example builds and
+# runs, but deliberately NOT published. See examples/README.md.
+# ---------------------------------------------------------------
+examples/string_detector/StringDetector.vhdl
+examples/string_detector/RunDetector.vhdl
+examples/string_detector/CryDetector.vhdl
+examples/string_detector/BroomDetector.vhdl
+
+# ---------------------------------------------------------------
 # Simulator output -- regenerable by sim/run_sim.bat or run_sim.sh
 # ---------------------------------------------------------------
 sim/xsim.dir/

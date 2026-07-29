@@ -10,6 +10,24 @@ run_sim.bat          # Vivado xsim  (Windows)
 
 Both exit non-zero if any test fails.
 
+### Where to run `run_sim.bat`
+
+It is a batch file, **not** something you paste into the Vivado GUI's Tcl console. Double-click it, or run it from any Command Prompt:
+
+```
+cd /d "<repo>\sim"
+run_sim.bat
+```
+
+You do not need a Vivado command prompt. If `xvhdl` isn't on `PATH` the script searches the usual install roots for `settings64.bat` and sources it itself. If your install is somewhere unusual, point it there:
+
+```
+set VIVADO_SETTINGS=C:\path\to\Vivado\2023.2\settings64.bat
+run_sim.bat
+```
+
+Expected output ends with `4 tests, 0 errors` and `192 of 256 reversed vectors detected as wrong` — the same numbers `model_scan_core.py` reports.
+
 ## Why this can exist now
 
 `BSCANE2` lives only in Vivado's `unisim` library, and until recently the scan logic sat in the same file as the primitive. Simulating it meant pulling in `unisim` and a primitive model — so in practice nobody simulated, and every question about bit ordering or widths cost a full synthesise → implement → bitstream → program → run cycle.

@@ -107,7 +107,7 @@ Those two lines are the visible confirmation that #3 is fixed. **Any other diffe
 
 | Check | Command | Why it matters |
 |---|---|---|
-| VHDL compiles and elaborates | `sim/run_sim.bat` | **Nothing has confirmed this.** No VHDL toolchain was available where the code was written. First thing to run. |
+| VHDL compiles and elaborates | `sim/run_sim.bat` (double-click, or from any Command Prompt — it locates Vivado itself) | **Nothing has confirmed this.** No VHDL toolchain was available where the code was written. First thing to run. |
 | All four testbench tests pass in VHDL | same | Confirms the model and the RTL agree |
 
 ### 4.2 Hardware

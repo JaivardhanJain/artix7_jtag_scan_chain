@@ -75,7 +75,8 @@ Refactor `host/scan_bscane2.py` into `host/scanchain.py`:
 ## Phase 6 — Document and compare (~1.5 h)
 
 - [ ] Fold the Phase 2 measurements into `docs/` and close out the resolved entries in `KNOWN_ISSUES.md`.
-- [ ] `docs/RESULTS.md`: vectors passed, throughput before/after the divider sweep, defects found and fixed, with the reasoning.
+- [x] `docs/RESULTS.md` created, with an evidence-tier scheme (hardware / simulation / model / argued) so nothing is over-claimed. Baseline and model results filled in; simulation and hardware sections are stubs awaiting runs.
+- [ ] Fill in the simulation and hardware sections: throughput before/after the divider sweep, parity run, interrupt test.
 - [ ] A short comparison writeup versus the MAX 10 flow — the artefact to show the professor.
 
 **Exit criterion:** someone who has never seen the repo can go from clone to a passing run using only the docs.

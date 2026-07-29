@@ -72,7 +72,66 @@ Switching the golden model to an adder was considered and rejected: it only shri
 
 ---
 
-## 3. Host driver after the rewrite
+## 3. VHDL simulation
+
+**Tier: simulation.** `sim/run_sim.bat` — Vivado Simulator **2020.2**, 2026-07-29.
+
+```
+=== analysing ===
+INFO: [VRFC 10-3107] analyzing entity 'scan_core'
+INFO: [VRFC 10-3107] analyzing entity 'tb_scan_core'
+=== elaborating ===
+Compiling architecture rtl of entity work.scan_core [\scan_core(number_of_inputs=8,nu...]
+Compiling architecture sim of entity work.tb_scan_core
+Built simulation snapshot tb_snapshot
+=== simulating ===
+Note: TEST 1: exhaustive scan of all 256 input vectors
+Note: TEST 2: desync recovery via jtag_reset
+Note: TEST 3: desync recovery via sel = '0'
+Note: TEST 4: bit-order sensitivity (reversed vectors must be detected)
+Note: TEST 4: 192 of 256 reversed vectors detected as wrong
+Note: === tb_scan_core done: 259 checks, 0 errors ===
+Note: ALL TESTS PASSED
+```
+
+Simulated time 164 960 ns; wall clock about 8 seconds.
+
+**This closes the largest gap in the project's evidence.** Until this run, nothing had confirmed the HDL even compiled — the `scan_core` split, the `io` reset path and the falling-edge TDO register had only ever been checked against a Python model written by the same author, in the same sitting, from the same misconceptions. An independent toolchain now agrees.
+
+| Claim | Was | Now |
+|---|---|---|
+| The VHDL compiles and elaborates | unverified | **verified** — `xvhdl` + `xelab` clean, no warnings |
+| Scan protocol logic is correct after the split | model | **simulation** |
+| Issue #1 — `io` recovers via TAP reset and via deselect | model | **simulation** |
+| Issue #2 — falling-edge TDO introduces no off-by-one | argued + model | **simulation** |
+| The suite detects wrong bit order | model | **simulation**, same 192/256 |
+
+### 3.1 The two runs agree, including on the number that could have drifted
+
+`model_scan_core.py` and the VHDL testbench independently report **192 of 256** reversed vectors detected. That figure is a property of the golden function's interaction with bit reversal, not something either implementation could have copied from the other — so it is a real cross-check that the two are exercising the same logic, not just both printing "passed".
+
+### 3.2 Why the check counts differ (259 vs 264)
+
+The Python model reports 264 checks, the VHDL testbench 259. This is a counting convention, not a discrepancy in coverage: the model routes its phase-bit assertions (`io` cleared by reset, `io` set after a lone input phase, `io` cleared by deselect, and the pre-fix desync reproduction) through the same counter as the vector comparisons, while the testbench raises those as VHDL `assert` statements, which do not increment `checks`. Both run the same four tests over the same 256-vector space.
+
+### 3.3 The one thing simulation still cannot reach
+
+Test 2b — the reproduction of the defect against the *pre-fix* design — exists only in the Python model. The VHDL testbench instantiates the current `scan_core`, which has the fix, so it cannot demonstrate the failure it prevents. Reproducing it in VHDL would mean maintaining a deliberately broken copy of the RTL; the model does that job at a fraction of the cost.
+
+### 3.4 A cosmetic Vivado issue, worth knowing
+
+`xelab` emitted this during elaboration:
+
+```
+source C:/Users/Owner/Wadhwani -notrace
+invalid command name "%"
+```
+
+That is Vivado 2020.2's Webtalk telemetry step failing to quote a repository path containing spaces (`Wadhwani Lab Research`). It is a Xilinx bug in a usage-reporting step, entirely outside the simulation, and it did not affect the result — elaboration completed and the snapshot built. Cloning to a path without spaces makes it disappear.
+
+---
+
+## 4. Host driver after the rewrite
 
 **Tier: model** (offline tests; no hardware involved). `python3 host/test_scanchain.py` — 2026-07-29. **22 tests, 0 failures.**
 
@@ -84,11 +143,11 @@ Switching the golden model to an adder was considered and rejected: it only shri
 | Ragged tracefiles are rejected with a line number (#4) | `test_rejects_ragged_input_width`, `test_rejects_ragged_output_width` |
 | The bundled tracefile still parses, and its 2 masked vectors are recognised | `test_bundled_tracefile_parses` |
 
-### 3.1 Why the equivalence tests are the important ones
+### 4.1 Why the equivalence tests are the important ones
 
 The MPSSE encoding and decoding are the only part of this project with hardware-tier evidence behind them. A rewrite that quietly changed a single byte would have destroyed the strongest result available and produced failures indistinguishable from an FPGA problem. Asserting byte-for-byte equivalence across the full width range converts "I was careful" into something checkable.
 
-### 3.2 Expected diff on the first hardware run
+### 4.2 Expected diff on the first hardware run
 
 `scanchain.py` reports fully masked vectors as `Skipped`; the original reported them as `Success`. Against `results/string_detector_output.txt` this predicts **exactly two changed lines** — the two `mask = 0` vectors at lines 1–2:
 
@@ -101,26 +160,21 @@ Those two lines are the visible confirmation that #3 is fixed. **Any other diffe
 
 ---
 
-## 4. Outstanding — nothing below has been run
+## 5. Outstanding — hardware
 
-### 4.1 Simulation
+Simulation is now complete. Everything remaining needs the board.
 
-| Check | Command | Why it matters |
-|---|---|---|
-| VHDL compiles and elaborates | `sim/run_sim.bat` (double-click, or from any Command Prompt — it locates Vivado itself) | **Nothing has confirmed this.** No VHDL toolchain was available where the code was written. First thing to run. |
-| All four testbench tests pass in VHDL | same | Confirms the model and the RTL agree |
-
-### 4.2 Hardware
+### 5.1 Hardware
 
 | Check | Expected | Proves |
 |---|---|---|
 | `scripts/build.tcl` produces a bitstream | clean, no `UCIO-1` | The build script works at all — it is untested |
 | `scripts/program.tcl` programs and releases the cable | device programmed | Same |
-| 46-vector run vs `results/string_detector_output.txt` | identical **except lines 1–2**, which become `Skipped` (see 3.2) | No behavioural drift from the `scan_core` split or the TDO edge move, and confirmation the mask fix took effect |
+| 46-vector run vs `results/string_detector_output.txt` | identical **except lines 1–2**, which become `Skipped` (see 4.2) | No behavioural drift from the `scan_core` split or the TDO edge move, and confirmation the mask fix took effect |
 | Interrupt mid-run, rerun **without reprogramming** | full pass | Issue #1. **Fails on the original code** — this is the fix's entire justification |
 | Divider sweep down from `0x3B`, before vs after the TDO fix | safe ceiling rises | Issue #2, and yields the one measurable throughput figure in the project |
 
-### 4.3 Deliberately out of scope for simulation
+### 5.2 Deliberately out of scope for simulation
 
 - **`BSCANE2` itself.** The testbench substitutes for it. If the primitive's CAPTURE/SHIFT/UPDATE pulse timing differs from what is modelled, only hardware will show it.
 - **Real timing.** Functional simulation with an idealised clock proves the launch edge is *logically* right. It says nothing about the maximum safe TCK frequency.
@@ -129,18 +183,19 @@ Those two lines are the visible confirmation that #3 is fixed. **Any other diffe
 
 ---
 
-## 5. Summary of claims
+## 6. Summary of claims
 
 | Claim | Strongest evidence to date |
 |---|---|
 | The scan chain approach works on Artix-7 | **Hardware** — 4096/4096, twice |
-| The `scan_core` split preserves behaviour | **Model** — exhaustive. Hardware parity run outstanding |
+| The HDL compiles and elaborates | **Simulation** — Vivado 2020.2, clean |
+| The `scan_core` split preserves behaviour | **Simulation** — exhaustive over 256 vectors. Hardware parity run outstanding |
 | Issue #1 (desync) was a real defect | **Model** — reproduced against the pre-fix design |
-| Issue #1 is fixed | **Model.** Hardware interrupt test outstanding |
-| Issue #2 (TDO edge) is fixed | **Argued** + model shows no off-by-one. Real timing margin unmeasured |
+| Issue #1 is fixed | **Simulation** — recovery via both TAP reset and deselect. Hardware interrupt test outstanding |
+| Issue #2 (TDO edge) is fixed | **Simulation** — no off-by-one. Real timing margin unmeasured |
 | The host rewrite preserves the wire protocol | **Model** — byte-for-byte equivalence, widths 1–64 |
 | Issues #3, #4, #8 are fixed | **Model** — 22 offline tests. No hardware run |
 | Throughput improved | **No evidence.** Divider sweep not yet run |
 | Issues #5, #6, #7 | Open, unaddressed |
 
-The honest one-line status: *the protocol was already proven on hardware by its original author; five defects have been found and fixed — two in HDL, three in the host — and all of them are verified only against offline models and tests. Nothing has been rebuilt, reprogrammed or rerun on the board.*
+The honest one-line status: *the protocol was already proven on hardware by its original author; five defects have been found and fixed — two in HDL, now confirmed in simulation, and three in the host, confirmed by offline tests. Nothing has yet been synthesised, programmed or rerun on the board.*

@@ -4,7 +4,7 @@ Automated, vector-based functional testing of VHDL designs on a Xilinx Artix-7 F
 
 This is an Artix-7 port of an existing MAX 10 flow. The MAX 10 version used Altera's Virtual JTAG IP; this one uses Xilinx's `BSCANE2` primitive. See [docs/MIGRATION_MAX10_TO_ARTIX7.md](docs/MIGRATION_MAX10_TO_ARTIX7.md).
 
-> **Status: working prototype, mid-rework.** The protocol is proven — 4096/4096 vectors pass on the bundled passthrough test ([results/](results/)). Two defects that could silently corrupt results have been fixed in HDL but **not yet verified on hardware**; see [Changes to the original implementation](#changes-to-the-original-implementation). Read [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) before trusting a result, and [docs/ROADMAP.md](docs/ROADMAP.md) for what's planned.
+> **Status: working prototype, mid-rework.** The protocol is proven — 4096/4096 vectors pass on the bundled passthrough test ([results/](results/)). Five defects have since been found and fixed: two in HDL, **verified in simulation** (Vivado xsim, 259 checks, 0 errors), and three in the host driver, verified by 22 offline tests. **Nothing has been rebuilt or rerun on the board yet.** See [Changes to the original implementation](#changes-to-the-original-implementation) and [docs/RESULTS.md](docs/RESULTS.md), which separates what is proven from what is argued.
 
 ---
 
@@ -74,7 +74,7 @@ Full signal-level detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - Python 3.8+
 - `pip install -r host/requirements.txt` (`ftd2xx`, `bitstring`)
 - FTDI **D2XX** driver installed. On Windows this usually conflicts with the VCP driver — if the device isn't found, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
-- Vivado (any version that supports your part) for synthesis and programming.
+- Vivado for synthesis, simulation and programming. Developed and simulated against **2020.2**; nothing depends on a newer version.
 
 ---
 
@@ -153,7 +153,7 @@ One vector per line, three space-separated columns:
 0001000 0 1
 ```
 
-Bit order is **MSB-first as written**, i.e. the leftmost character is `input_vector(N-1)`. Full spec, including the mask column semantics and the known bug where the mask is currently ignored, is in [docs/TRACEFILE_FORMAT.md](docs/TRACEFILE_FORMAT.md).
+Bit order is **MSB-first as written**, i.e. the leftmost character is `input_vector(N-1)`. The mask column is optional and may be a single `0`/`1` or one character per output bit; `x`/`-` don't-cares are allowed in the expected column. Full spec in [docs/TRACEFILE_FORMAT.md](docs/TRACEFILE_FORMAT.md).
 
 ---
 
@@ -161,8 +161,8 @@ Bit order is **MSB-first as written**, i.e. the leftmost character is `input_vec
 
 | # | Issue | Impact | Status |
 |---|---|---|---|
-| 1 | `io` phase bit has no reset path (`BSCANE2.RESET` left open) | A crashed script permanently desyncs host and FPGA. Every later result is wrong. | **Fixed, pending hardware verification** |
-| 2 | TDO launched and sampled on the same clock edge | Works at the current divider by timing luck, not design. | **Fixed, pending hardware verification** |
+| 1 | `io` phase bit has no reset path (`BSCANE2.RESET` left open) | A crashed script permanently desyncs host and FPGA. Every later result is wrong. | **Fixed, simulation-verified** |
+| 2 | TDO launched and sampled on the same clock edge | Works at the current divider by timing luck, not design. | **Fixed, simulation-verified** |
 | 3 | Mask column parsed but never applied | Don't-care outputs are compared as hard values. | **Fixed, offline-tested** |
 | 4 | Read parser reuses widths leaked from the write loop | Ragged tracefiles mis-parse instead of erroring. | **Fixed, offline-tested** |
 | 5 | `StringDetector.vhd` is not in this repo | `examples/string_detector` will not elaborate as-is. | Open |
@@ -173,7 +173,7 @@ Nine issues in total. Full write-ups and fixes: [docs/KNOWN_ISSUES.md](docs/KNOW
 
 ## Changes to the original implementation
 
-This section records every deviation from the code as inherited: what changed, what problem in the original it solves, and how the change will be proven correct. **Nothing here has been validated on hardware yet.** The scan protocol logic has been verified against an offline model (item 4); the VHDL itself has not been compiled.
+This section records every deviation from the code as inherited: what changed, what problem in the original it solves, and how the change was proven correct. The HDL changes are **verified in simulation** and the host changes by offline tests; **nothing has been validated on hardware yet.**
 
 ### 1. Scan logic split into `scan_core.vhd`
 
@@ -183,7 +183,7 @@ This section records every deviation from the code as inherited: what changed, w
 
 `scan_core` has no vendor dependency, so a testbench can drive `capture`/`shift`/`update` directly. This change is the prerequisite for the testbench, and it is also what makes the two fixes below small, local and reviewable.
 
-**Verification.** This refactor is behaviour-preserving by construction — the process body is the original logic, unmodified apart from the two fixes below. It is proven by the 46-vector parity run in the bench checklist: same tracefile, same output as the committed `results/string_detector_output.txt`. Any behavioural drift shows up as a diff.
+**Verification.** This refactor is behaviour-preserving by construction — the process body is the original logic, unmodified apart from the two fixes below. Confirmed in simulation: 256 vectors exhaustively, 0 errors. The remaining check is the 46-vector hardware parity run against the committed `results/string_detector_output.txt`.
 
 ### 2. `io` phase bit now has a reset path — fixes [issue #1](docs/KNOWN_ISSUES.md)
 
@@ -195,7 +195,7 @@ This is the most serious defect found, precisely because the passing 4096-vector
 
 The host already issues a TAP reset before its IDCODE read at startup, so with this fix every invocation self-synchronises for free. No host-side change needed.
 
-**Verification.** The specific test is: start a run, `Ctrl-C` it mid-vector, then rerun **without reprogramming the FPGA** and confirm a full pass. That test fails on the original code and must pass now. It's step (a) of the bench checklist.
+**Verification.** Confirmed in simulation — `tb_scan_core` tests 2 and 3 abandon a vector mid-flight and recover via TAP reset and via deselect respectively, both passing. The remaining bench test is the real-world version: start a run, `Ctrl-C` it mid-vector, then rerun **without reprogramming the FPGA** and confirm a full pass. That fails on the original code.
 
 ### 3. TDO registered on the falling edge of TCK — fixes [issue #2](docs/KNOWN_ISSUES.md)
 
@@ -207,7 +207,7 @@ It worked, but only because the clock divider (`0x3B`, ~500 kHz) left enough sla
 
 **Why the host needs no change.** Moving the launch edge does not shift the data. After Capture-DR on rising edge *N*, the falling edge of *N* launches bit 0; the host samples it on rising edge *N+1*, half a clock later, by which point it has been stable. Same bits, same order, no added latency — only the launch edge moves. The timing walkthrough is in the header of `scan_core.vhd`.
 
-**Verification.** Two parts. First, the 46-vector parity run must still match byte-for-byte — if the fix had introduced an off-by-one, every vector would shift. Second, sweep the clock divider down from `0x3B` and record the fastest reliable setting before and after. A correct fix should raise the safe ceiling, and that delta is the project's one concrete, measurable improvement claim.
+**Verification.** The off-by-one concern is settled: `tb_scan_core` test 1 passes 256 vectors exhaustively, and it samples `tdo` while `tck` is low — exactly what an MPSSE `0x2C`/`0x2E` read sees — so a shifted launch edge would have failed every vector. What simulation cannot give is the real timing margin: sweep the clock divider down from `0x3B` on hardware and record the fastest reliable setting before and after. That delta is the project's one concrete, measurable improvement claim.
 
 ### 4. Simulation testbench — addresses [issue #9](docs/KNOWN_ISSUES.md)
 
@@ -217,11 +217,11 @@ It worked, but only because the clock divider (`0x3B`, ~500 kHz) left enough sla
 
 **What it checks.** An exhaustive scan of all 256 vectors; desync recovery via TAP reset and via deselect; and a bit-order sensitivity sweep. Critically, it samples `tdo` while `tck` is low, immediately before the rising edge — exactly what the host's MPSSE `0x2C`/`0x2E` reads see — so the falling-edge launch fix is exercised the same way hardware will exercise it.
 
-**Verification — and this part is already done.** `model_scan_core.py` runs the same sequence against a Python model and passes: 264 checks, 0 errors, 192/256 reversed vectors correctly detected as wrong. It also models the *original* code (`with_fixes=False`) and confirms that the interrupt scenario desyncs it — so fix #2 above is demonstrated against a model of the defect rather than merely argued.
+**Verification — done, twice.** Under Vivado xsim 2020.2: **259 checks, 0 errors**, about 8 seconds. And `model_scan_core.py`, a Python model needing no toolchain, runs the same sequence and agrees — including on the 192/256 bit-order figure, which is a property of the golden function neither could have copied from the other. The model additionally reproduces the *original* code (`with_fixes=False`) and confirms the interrupt scenario desyncs it, so fix #2 above is demonstrated against the defect rather than merely argued.
 
 The model also earned its keep immediately: the first version of the bit-order test used a single vector for which reversal was undetectable under the golden model, so it would have passed a testbench that was blind to bit order. That test is now a sweep.
 
-**What it does not prove.** The model is not a simulator — it cannot catch VHDL syntax or elaboration errors, and it assumes the RTL does what the model says. The VHDL testbench itself has not been compiled; no VHDL toolchain was available here. Running `sim/run_sim.bat` is the first thing to do at your machine, before any hardware work.
+**What it does not prove.** `BSCANE2`'s real pulse timing — the testbench substitutes for the primitive. Real clock margins — this is functional simulation with an idealised clock. Synthesis — compiling and synthesising are different. And nothing host-side.
 
 ### 5. Host driver rewritten as `host/scanchain.py` — fixes [#3](docs/KNOWN_ISSUES.md), [#4](docs/KNOWN_ISSUES.md), [#8](docs/KNOWN_ISSUES.md)
 

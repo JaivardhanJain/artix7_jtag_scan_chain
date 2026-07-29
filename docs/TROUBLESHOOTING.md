@@ -58,6 +58,19 @@ The `state_out` debug port is enabled in `TopLevel.vhd` but has no pin assignmen
 
 Do **not** re-add `set_property SEVERITY Warning [get_drc_checks UCIO-1]`. Suppressing the check hides genuine unconstrained-port problems in any DUT you add later.
 
+## Simulation: `invalid command name "%"` during elaboration
+
+```
+source C:/Users/Owner/Wadhwani -notrace
+invalid command name "%"
+    while executing
+"% Total    % Received % Xferd  Average Speed ..."
+```
+
+**Harmless — ignore it.** This is Vivado's Webtalk usage-reporting step failing to quote a repository path that contains spaces (e.g. `Wadhwani Lab Research`). It happens after elaboration has already succeeded and has no effect on the simulation: the snapshot builds and the tests run normally. Observed on 2020.2.
+
+Cloning the repo to a path without spaces makes it go away.
+
 ## Vivado: `Entity StringDetector is not bound`
 
 `StringDetector.vhd` is not in this repository (Known Issues #5). Supply it, or use a different example.

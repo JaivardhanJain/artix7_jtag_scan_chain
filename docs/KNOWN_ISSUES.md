@@ -8,7 +8,7 @@ Ordered by severity. Issues 1 and 2 can produce results that look fine but aren'
 
 **Severity: high.** Can invalidate an entire run with no visible error.
 
-> **STATUS: fixed in HDL, pending hardware verification.** `BSCANE2.RESET` and `SEL` are now wired into `scan_core`, which clears `io` asynchronously in Test-Logic-Reset and synchronously when the DR is deselected. Verification test: interrupt a run, rerun **without reprogramming**, expect a full pass. Description below is of the original defect.
+> **STATUS: fixed, verified in simulation, pending hardware.** `BSCANE2.RESET` and `SEL` are wired into `scan_core`, which clears `io` asynchronously in Test-Logic-Reset and synchronously when the DR is deselected. Confirmed by tb_scan_core tests 2 and 3 under Vivado xsim 2020.2 — recovery works via both paths. Remaining bench test: interrupt a run, rerun **without reprogramming**, expect a full pass. Description below is of the original defect.
 
 `io` selects input phase vs output phase and inverts on every Update-DR. It is initialised only by its signal declaration:
 
@@ -44,7 +44,7 @@ Then have the host issue a TAP reset at the start of every run — it already do
 
 **Severity: high.** Currently works, but by timing margin rather than by design.
 
-> **STATUS: fixed in HDL, pending hardware verification.** `tdo` is now registered on the falling edge of `tck` in `scan_core`. The host was deliberately left on its rising-edge `0x2C`/`0x2E` reads — moving the launch edge does not shift the data. Verification: 46-vector parity run must match byte-for-byte, then sweep the divider to measure the new safe ceiling. Description below is of the original defect.
+> **STATUS: fixed, verified in simulation, pending hardware.** `tdo` is registered on the falling edge of `tck` in `scan_core`. The host was deliberately left on its rising-edge `0x2C`/`0x2E` reads — moving the launch edge does not shift the data, confirmed by tb_scan_core test 1 (256 vectors, 0 errors) under Vivado xsim 2020.2, which samples tdo exactly as an MPSSE read does. Real timing margin is still unmeasured: sweep the divider on hardware. Description below is of the original defect.
 
 `tdo <= datau(0)` is combinational, and `datau` is registered on the **rising** edge of TCK. The host reads with MPSSE opcodes `0x2C` and `0x2E`, both of which sample TDO on the **rising** edge. So the FPGA changes TDO on the same edge the host latches it.
 
@@ -174,7 +174,7 @@ Both are dead. `state_out` was a debug port that is now commented out in `TopLev
 
 ## 9. Missing: any way to test without hardware
 
-> **STATUS: addressed, pending a compile.** The scan logic lives in `hdl/scan_core.vhd` (no vendor primitives), and `sim/tb_scan_core.vhd` now exercises it — exhaustive scan, desync recovery via reset and via deselect, and a bit-order sweep. `sim/model_scan_core.py` runs the same sequence offline and passes (264 checks, 0 errors). The VHDL testbench has not yet been compiled; run `sim/run_sim.bat`.
+> **STATUS: resolved.** The scan logic lives in `hdl/scan_core.vhd` (no vendor primitives) and `sim/tb_scan_core.vhd` exercises it — exhaustive scan, desync recovery via reset and via deselect, and a bit-order sweep. Verified under Vivado xsim 2020.2: **259 checks, 0 errors**, in about 8 seconds. `sim/model_scan_core.py` runs the same sequence with no toolchain at all and agrees, including on the 192/256 bit-order figure.
 
 There is no testbench. Every change to the scan logic or a tracefile requires a full synthesis, implementation, bitstream and program cycle before you learn whether the bit ordering was right.
 

@@ -25,10 +25,11 @@ The project as inherited will not elaborate. This has to come first or nothing b
 - [x] **Split the scan logic into `hdl/scan_core.vhd`**, leaving `TopLevel.vhd` as BSCANE2 wiring only. Not originally planned; added because it removes the `unisim` dependency from the scan logic, which is the prerequisite for Phase 5's testbench, and it makes both fixes below local and reviewable.
 - [x] Wire `BSCANE2.RESET` (and `SEL`) into a phase reset for `io`; confirm the host's existing TAP reset now self-synchronises every run (Known Issues #1). *Code complete, unverified.*
 - [x] Move TDO to a falling-edge register, **or** switch the host to `0x2D`/`0x2F` reads — not both (Known Issues #2). Chose the HDL side: it makes the design spec-compliant for any host. *Code complete, unverified.*
-- [ ] **Then sweep the clock divider** from `0x3B` downward and record the fastest reliable setting. Report throughput before vs after. This is the one number in the project that makes a measurable "it's better" claim.
-- [ ] Deliberately Ctrl-C mid-run to prove the desync is gone.
+- [x] Both fixes confirmed in simulation (xsim 2020.2): exhaustive scan clean, and recovery works via both TAP reset and deselect.
+- [ ] **Then sweep the clock divider** from `0x3B` downward and record the fastest reliable setting. Report throughput before vs after. This is the one number in the project that makes a measurable "it's better" claim. `scanchain.py --divider` makes this a flag rather than an edit.
+- [ ] Deliberately Ctrl-C mid-run to prove the desync is gone on real hardware.
 
-**Exit criterion:** an interrupted run recovers without reprogramming, and you have a documented safe clock rate.
+**Exit criterion:** an interrupted run recovers without reprogramming, and you have a documented safe clock rate. *Simulation half met; hardware half outstanding.*
 
 ## Phase 3 — Harden the host script (~2 h)
 
@@ -65,14 +66,14 @@ Refactor `host/scan_bscane2.py` into `host/scanchain.py`:
 
 ## Phase 5 — Verify without hardware (~2 h)
 
-- [x] **`sim/tb_scan_core.vhd`** — a behavioural testbench that fakes the BSCANE2 TAP handshake (CAPTURE/SHIFT/UPDATE) and shifts vectors through the real `scan_core` + a modelled DUT. Written; **not yet compiled**. Plus `run_sim.bat` / `run_sim.sh`.
+- [x] **`sim/tb_scan_core.vhd`** — a behavioural testbench that fakes the BSCANE2 TAP handshake (CAPTURE/SHIFT/UPDATE) and shifts vectors through the real `scan_core` + a modelled DUT. Plus `run_sim.bat` / `run_sim.sh`.
 - [x] **`sim/model_scan_core.py`** — not originally planned. A Python cycle model of the same logic that runs with no toolchain in under a second, and models the pre-fix design too, so the desync fix is demonstrated against the defect. Passing: 264 checks, 0 errors.
-- [ ] Compile and run the VHDL testbench (`sim/run_sim.bat`). This is the first thing to do at a machine with Vivado.
+- [x] Compile and run the VHDL testbench (`sim/run_sim.bat`). **Done — Vivado xsim 2020.2, 259 checks, 0 errors.**
 
   This was the highest-value single addition in the project. It turns a 10-minute synthesise-implement-program-test round trip into a few seconds of simulation, and it catches the two most common student errors — wrong bit order and wrong width — before hardware is involved. The MAX 10 flow never had this.
 - [ ] Optional: `openFPGALoader` path so the board can be programmed with no Vivado install — the closest analogue to MAX 10's pre-built `scan-25k.svf`.
 
-**Exit criterion:** a wrong bit order is caught in simulation, not on the bench.
+**Exit criterion:** a wrong bit order is caught in simulation, not on the bench. **Met** — 192 of 256 reversed vectors detected, in both xsim and the Python model.
 
 ## Phase 6 — Document and compare (~1.5 h)
 

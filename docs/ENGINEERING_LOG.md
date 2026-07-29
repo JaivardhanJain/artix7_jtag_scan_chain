@@ -375,3 +375,49 @@ The corollary is the honest limitation: the tests stop at the device boundary. N
 | FTDI transport and USB batching | **Untested** |
 
 D3 and D4 are recorded as *fixed, offline-tested* — a weaker claim than *fixed*, and the right one until the driver has moved a vector across a real cable.
+
+---
+
+## Entry 008 — 2026-07-29 — VHDL simulation run: the model and the RTL agree
+
+`sim/run_sim.bat`, Vivado Simulator **2020.2**. **259 checks, 0 errors**, 164 960 ns simulated in roughly 8 seconds of wall clock.
+
+```
+Note: TEST 1: exhaustive scan of all 256 input vectors
+Note: TEST 2: desync recovery via jtag_reset
+Note: TEST 3: desync recovery via sel = '0'
+Note: TEST 4: bit-order sensitivity (reversed vectors must be detected)
+Note: TEST 4: 192 of 256 reversed vectors detected as wrong
+Note: === tb_scan_core done: 259 checks, 0 errors ===
+Note: ALL TESTS PASSED
+```
+
+### 8.1 What this closes
+
+Entry 006 was explicit that nothing had confirmed the VHDL even compiled. Every claim about the `scan_core` split, the `io` reset path and the falling-edge TDO register rested on a Python model written by the same person, in the same sitting, from the same set of assumptions — a model that can only ever confirm the author's own understanding of the design, not the design itself.
+
+An independent toolchain now agrees. `xvhdl` and `xelab` analysed and elaborated cleanly with no warnings, and the testbench passes. Issues #1, #2 and #9 move from *model* tier to *simulation* tier in [RESULTS.md](RESULTS.md). #9 is closed outright.
+
+### 8.2 The cross-check that carries the most weight
+
+Both implementations independently report **192 of 256** reversed vectors detected.
+
+That number is not a pass/fail flag either could have copied. It is a property of how the golden function `low_slice xor high_slice` interacts with bit reversal — the 64 vectors whose result is a palindrome are undetectable, leaving 192. Two implementations arriving at the same figure is evidence they are exercising the same logic, not merely both printing "passed".
+
+### 8.3 259 checks versus the model's 264
+
+A counting convention, not a coverage gap. The Python model routes its phase assertions — `io` cleared by reset, `io` set after a lone input phase, `io` cleared by deselect, and the pre-fix desync reproduction — through the same counter as vector comparisons. The VHDL testbench raises those as `assert` statements, which do not increment `checks`. Same four tests, same 256-vector space.
+
+Recording this because an unexplained discrepancy between two supposedly equivalent suites is exactly the kind of thing that quietly erodes trust in both.
+
+### 8.4 What simulation still cannot do
+
+Test 2b — reproducing the defect against the *pre-fix* design — exists only in the Python model, and structurally must. The VHDL testbench instantiates the current `scan_core`, which has the fix; demonstrating the failure would mean maintaining a deliberately broken copy of the RTL alongside the good one. The model does that job for free, which is a reason to keep it rather than retire it now that xsim works.
+
+Also still out of reach: `BSCANE2`'s real pulse timing, actual clock margins, synthesis, and the entire host-side transport.
+
+### 8.5 Environment note
+
+The Vivado install is **2020.2**, not the 2023.2 guessed earlier. Nothing in the project depends on a newer version — the HDL is plain VHDL-93 and the testbench uses no 2008 constructs. `scripts/build.tcl` defaults to `xc7a35tftg256-1`, which 2020.2 supports.
+
+`xelab` also emitted `invalid command name "%"` from its Webtalk telemetry step. That is Xilinx failing to quote a path containing spaces (`Wadhwani Lab Research`); it occurs after elaboration completes and does not affect the result. Documented in [TROUBLESHOOTING.md](TROUBLESHOOTING.md) so it is not mistaken for a real failure later.

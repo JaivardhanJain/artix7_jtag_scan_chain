@@ -163,3 +163,87 @@ Someone who has never seen this repository can clone it, run one build command, 
 - `StringDetector.vhd` may be unrecoverable, in which case Phase 1 grows by about an hour to rewrite it from the spec — or a simpler sequential example is substituted.
 - The divider sweep may show the current `0x3B` is already near the reliable ceiling, which would make the throughput result unimpressive. A documented safe-operating-margin figure is still a legitimate finding; the claim just becomes robustness rather than speed.
 - The phase-reset fix could interact with Vivado's own use of the TAP. Using `SEL` deassertion should cover the case where Hardware Manager takes the chain, but this needs testing with Vivado both open and closed.
+
+---
+
+## Entry 005 — 2026-07-29 — Phase 1/2 HDL work: core split and both high-severity fixes
+
+Three changes, one commit, all in `hdl/`. `host/scan_bscane2.py` deliberately untouched — see 5.4.
+
+### 5.1 `scan_core` extracted from `TopLevel` *(enabler, no behavioural change)*
+
+`TopLevel.vhd` previously contained both the `BSCANE2` instantiation and the whole shift register. Now:
+
+- `hdl/TopLevel.vhd` — Xilinx-specific wiring only: BSCANE2 → scan_core → DUT, plus the two width constants.
+- `hdl/scan_core.vhd` — all shift, capture and phase logic, behind plain `std_logic` ports (`tck`, `tdi`, `tdo`, `capture`, `shift`, `update`, `jtag_reset`, `sel`, `dut_input`, `dut_output`, `io_phase`).
+
+**Motivation.** `BSCANE2` exists only in Vivado's `unisim` library, so with the logic and the primitive in one file there was no practical way to simulate the scan chain — which is why D9 existed and why every bit-ordering question cost a full synthesise-implement-program-test cycle. `scan_core` has no vendor dependency, so a testbench drives the TAP handshake ports directly.
+
+Two secondary benefits: the DUT is instantiated in `TopLevel`, not in `scan_core`, so the core is DUT-agnostic and a testbench can substitute any DUT or drive `dut_output` directly; and both fixes below became small local edits inside one reviewable file rather than surgery on the top level.
+
+The `io_phase` output was added for observability — a testbench can assert on it directly, and it is the signal the commented-out `state_out` debug port existed to expose. `TopLevel` leaves it `open`, so it costs nothing.
+
+### 5.2 D1 fixed — `io` now has a reset path
+
+`BSCANE2.RESET` and `SEL`, previously `open`, are wired into `scan_core`:
+
+```vhdl
+shift_reg : process(tck, jtag_reset)
+begin
+  if jtag_reset = '1' then       -- Test-Logic-Reset, asynchronous
+    io <= '0';
+  elsif rising_edge(tck) then
+    if sel = '0' then            -- USER1 not selected
+      io <= '0';
+    elsif update = '1' then
+      ...
+```
+
+The reset is asynchronous on `jtag_reset` deliberately: recovery must not depend on `tck` still being clocked. The `sel = '0'` clear covers the case where the TAP moves to another instruction — including Vivado's Hardware Manager taking the chain — and parks the phase at input so the next run starts from a known state.
+
+No host change was required: `scan_bscane2.py` already issues a TAP reset before its IDCODE read, so with this fix every invocation self-synchronises.
+
+### 5.3 D2 fixed — TDO launched on the falling edge
+
+```vhdl
+tdo_reg : process(tck)
+begin
+  if falling_edge(tck) then
+    tdo <= datau(0);
+  end if;
+end process;
+```
+
+The concern with any change to a shift path is an off-by-one. There isn't one here, because moving the launch edge does not move the data:
+
+| Edge | Event |
+|---|---|
+| rising *N* | Capture-DR: `datau <= dut_output`, so `datau(0) = d0` |
+| falling *N* | `tdo <= d0` |
+| rising *N+1* | host samples `tdo = d0` — stable, launched half a cycle earlier. `datau` shifts, `datau(0) = d1` |
+| falling *N+1* | `tdo <= d1` |
+| rising *N+2* | host samples `d1` |
+
+Identical bit sequence, no added latency; only the launch instant moves earlier by half a period. The host stays on its rising-edge `0x2C`/`0x2E` reads. The alternative fix — switching the host to `0x2D`/`0x2F` — was rejected because fixing it in HDL makes the design spec-compliant for any future host, rather than making one particular host compensate.
+
+### 5.4 Why the host was left alone
+
+Keeping `scan_bscane2.py` byte-identical across this change means the 46-vector parity run isolates the HDL edits. If the output diffs against `results/string_detector_output.txt`, the cause is unambiguously in `hdl/`. Host-side work (D3, D4, D8) is a separate change with its own verification.
+
+### 5.5 Verification status — nothing here is proven yet
+
+Every claim above is a design argument, not a measurement. GHDL is not installable in the environment these edits were made in, so not even a compile check has been run; the code has been reviewed for syntax and elaboration, no more. Outstanding:
+
+| Check | Expectation | Catches |
+|---|---|---|
+| `xvhdl` / `xelab` compile | clean | syntax, port map, null-slice errors |
+| Build via `scripts/build.tcl` | bitstream produced, no `UCIO-1` | the added `scan_core.vhd` source entry |
+| 46-vector parity vs committed result | byte-for-byte identical | any behavioural drift from the split; an off-by-one from the TDO edge move |
+| Interrupt mid-run, rerun **without reprogramming** | full pass | D1. **This is the test that fails on the original code** — it is the fix's whole justification |
+| Divider sweep down from `0x3B`, before/after | safe ceiling should rise | D2, and yields the one measurable improvement figure |
+
+Until the parity run and the interrupt test both pass, D1 and D2 are recorded as *fixed in HDL, pending hardware verification* — not closed.
+
+### 5.6 Also updated
+
+`scripts/build.tcl` now adds `hdl/scan_core.vhd` alongside `TopLevel.vhd`. Easy to miss, and it would have produced a confusing "entity scan_core is not bound" at elaboration.

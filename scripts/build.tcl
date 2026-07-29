@@ -37,7 +37,9 @@ file mkdir $build_dir
 create_project -force TopLevel $build_dir -part $part
 
 # --- Harness -------------------------------------------------------------
-add_files -norecurse [file join $repo_root hdl TopLevel.vhd]
+add_files -norecurse [list \
+    [file join $repo_root hdl scan_core.vhd] \
+    [file join $repo_root hdl TopLevel.vhd]]
 
 # --- DUT and its sources -------------------------------------------------
 set dut_sources [glob -nocomplain [file join $repo_root $example_dir *.vhd]]

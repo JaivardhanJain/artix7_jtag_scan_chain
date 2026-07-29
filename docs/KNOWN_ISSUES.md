@@ -8,6 +8,8 @@ Ordered by severity. Issues 1 and 2 can produce results that look fine but aren'
 
 **Severity: high.** Can invalidate an entire run with no visible error.
 
+> **STATUS: fixed in HDL, pending hardware verification.** `BSCANE2.RESET` and `SEL` are now wired into `scan_core`, which clears `io` asynchronously in Test-Logic-Reset and synchronously when the DR is deselected. Verification test: interrupt a run, rerun **without reprogramming**, expect a full pass. Description below is of the original defect.
+
 `io` selects input phase vs output phase and inverts on every Update-DR. It is initialised only by its signal declaration:
 
 ```vhdl
@@ -41,6 +43,8 @@ Then have the host issue a TAP reset at the start of every run — it already do
 ## 2. TDO launched and sampled on the same clock edge
 
 **Severity: high.** Currently works, but by timing margin rather than by design.
+
+> **STATUS: fixed in HDL, pending hardware verification.** `tdo` is now registered on the falling edge of `tck` in `scan_core`. The host was deliberately left on its rising-edge `0x2C`/`0x2E` reads — moving the launch edge does not shift the data. Verification: 46-vector parity run must match byte-for-byte, then sweep the divider to measure the new safe ceiling. Description below is of the original defect.
 
 `tdo <= datau(0)` is combinational, and `datau` is registered on the **rising** edge of TCK. The host reads with MPSSE opcodes `0x2C` and `0x2E`, both of which sample TDO on the **rising** edge. So the FPGA changes TDO on the same edge the host latches it.
 
@@ -163,6 +167,8 @@ Both are dead. `state_out` was a debug port that is now commented out in `TopLev
 ---
 
 ## 9. Missing: any way to test without hardware
+
+> **STATUS: unblocked.** The scan logic now lives in `hdl/scan_core.vhd`, which contains no vendor primitives and can be simulated without `unisim`. The testbench itself is not yet written.
 
 There is no testbench. Every change to the scan logic or a tracefile requires a full synthesis, implementation, bitstream and program cycle before you learn whether the bit ordering was right.
 

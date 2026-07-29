@@ -22,8 +22,9 @@ The project as inherited will not elaborate. This has to come first or nothing b
 
 ## Phase 2 — Fix the two real bugs (~1.5 h)
 
-- [ ] Wire `BSCANE2.RESET` (and `SEL`) into a phase reset for `io`; confirm the host's existing TAP reset now self-synchronises every run (Known Issues #1).
-- [ ] Move TDO to a falling-edge register, **or** switch the host to `0x2D`/`0x2F` reads — not both (Known Issues #2).
+- [x] **Split the scan logic into `hdl/scan_core.vhd`**, leaving `TopLevel.vhd` as BSCANE2 wiring only. Not originally planned; added because it removes the `unisim` dependency from the scan logic, which is the prerequisite for Phase 5's testbench, and it makes both fixes below local and reviewable.
+- [x] Wire `BSCANE2.RESET` (and `SEL`) into a phase reset for `io`; confirm the host's existing TAP reset now self-synchronises every run (Known Issues #1). *Code complete, unverified.*
+- [x] Move TDO to a falling-edge register, **or** switch the host to `0x2D`/`0x2F` reads — not both (Known Issues #2). Chose the HDL side: it makes the design spec-compliant for any host. *Code complete, unverified.*
 - [ ] **Then sweep the clock divider** from `0x3B` downward and record the fastest reliable setting. Report throughput before vs after. This is the one number in the project that makes a measurable "it's better" claim.
 - [ ] Deliberately Ctrl-C mid-run to prove the desync is gone.
 

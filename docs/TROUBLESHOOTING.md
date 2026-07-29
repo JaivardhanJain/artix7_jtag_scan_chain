@@ -34,7 +34,7 @@ Expected values are part-specific — read them from the BSDL for your device. 7
 
 Most likely one of three things:
 
-1. **Phase desync.** If a previous run was interrupted, the FPGA's `io` bit is inverted relative to the host and stays that way. **Reprogram the FPGA** and try again. If reprogramming fixes it, you've just reproduced Known Issues #1 — apply the `RESET` fix.
+1. **Phase desync.** If a previous run was interrupted, the FPGA's `io` bit is inverted relative to the host. This should no longer happen — `scan_core` now clears `io` on TAP reset, and the host issues one at startup (Known Issues #1). If it *does* happen, reprogram the FPGA to confirm, then check that `BSCANE2.RESET`/`SEL` are actually wired through to `scan_core` in your build and that you rebuilt after the fix.
 2. **Width mismatch.** `number_of_inputs` / `number_of_outputs` in `TopLevel.vhd` don't match the tracefile's column widths. There's no check for this; it just shifts the wrong number of bits.
 3. **`TopLevel` isn't actually the top.** Confirm Vivado's top module is `TopLevel` and that `TopLevel.vhd` is in the project's source list. The original `.xpr` did **not** include it (Known Issues #6).
 
@@ -44,13 +44,13 @@ Your DUT wrapper's bit mapping is inverted relative to the tracefile. The tracef
 
 ## Results are intermittent — passes and failures vary run to run
 
-This is the TDO edge race (Known Issues #2). Raise the clock divider (larger value = slower) to confirm:
+This was the TDO edge race (Known Issues #2), now fixed by launching TDO on the falling edge of TCK. If you still see it, first confirm you rebuilt after the fix, then raise the clock divider (larger value = slower) to check whether it's timing-related at all:
 
 ```python
 dev.write(b"\x86\x7F\x00")   # ~234 kHz
 ```
 
-If slowing down fixes it, apply the falling-edge TDO fix rather than living with the slow clock.
+If slowing down fixes it on a post-fix build, the cause is elsewhere — signal integrity on the JTAG cable, or an FTDI channel shared with something else.
 
 ## Vivado: `[DRC UCIO-1] Unconstrained Logical Port`
 

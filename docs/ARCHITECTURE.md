@@ -6,9 +6,18 @@ A DUT with 7 inputs and 1 output needs 8 board pins to test by hand. A 4096-vect
 
 Every Xilinx 7-series FPGA already has a JTAG TAP controller wired to the USB programming interface. The `BSCANE2` primitive exposes that TAP's user data registers to your own logic. So the DUT can be reached over the same cable used to program it, consuming zero board I/O.
 
-## 2. FPGA side — `hdl/TopLevel.vhd`
+## 2. FPGA side — `hdl/TopLevel.vhd` and `hdl/scan_core.vhd`
 
 `TopLevel` has **no ports at all**. Everything enters and leaves through JTAG.
+
+The FPGA side is split across two files:
+
+| File | Contains | Vendor-dependent? |
+|---|---|---|
+| `TopLevel.vhd` | `BSCANE2` instantiation, the two width constants, wiring to `scan_core` and the DUT | Yes — `BSCANE2` needs `unisim` |
+| `scan_core.vhd` | All shift, capture and phase logic, behind plain `std_logic` ports | No |
+
+The split exists so the scan logic can be simulated without `unisim` or a `BSCANE2` model: a testbench instantiates `scan_core` and drives `capture`/`shift`/`update` itself. See [ENGINEERING_LOG.md](ENGINEERING_LOG.md) entry 005.
 
 ### BSCANE2
 
@@ -18,7 +27,8 @@ bscan_inst : BSCANE2
   port map (
     TCK => tck, TDI => tdi, TDO => tdo,
     SHIFT => sdr, CAPTURE => cdr, UPDATE => udr,
-    RESET => open, RUNTEST => open, DRCK => open, SEL => open );
+    RESET => jtag_reset, SEL => sel,
+    RUNTEST => open, DRCK => open );
 ```
 
 `JTAG_CHAIN => 1` binds this instance to the **USER1** instruction. When the host loads USER1 into the 6-bit instruction register, this primitive's data register is placed between TDI and TDO.
@@ -33,8 +43,8 @@ Signal meanings:
 | `CAPTURE` | in | high during TAP state Capture-DR |
 | `SHIFT` | in | high during TAP state Shift-DR |
 | `UPDATE` | in | one-cycle pulse in TAP state Update-DR |
-| `RESET` | in | high in Test-Logic-Reset — **currently unused, see Known Issues #1** |
-| `SEL` | in | high while USER1 is the active instruction |
+| `RESET` | in | high in Test-Logic-Reset — now wired to `scan_core.jtag_reset` to clear the phase bit (Known Issues #1) |
+| `SEL` | in | high while USER1 is the active instruction — now wired to `scan_core.sel` |
 
 ### The scan register and the `io` phase bit
 
@@ -43,22 +53,26 @@ There is one shift path but two things to move: inputs going in, outputs coming 
 - `io = '0'` → **input phase**. Shifting fills `data`. Update-DR latches `data` into `dut_input`.
 - `io = '1'` → **output phase**. Capture-DR loads `dut_output` into `datau`. Shifting streams it out on TDO.
 
-`io` inverts on every Update-DR, so the host and the FPGA alternate phases in lockstep. **This lockstep is the design's one fragile assumption** — see Known Issues #1.
+`io` inverts on every Update-DR, so the host and the FPGA alternate phases in lockstep. **This lockstep was the design's one fragile assumption**: with no reset path, an interrupted run left it permanently inverted. `io` is now cleared asynchronously in Test-Logic-Reset and synchronously whenever `sel` is low, so every run self-synchronises off the TAP reset the host already issues (Known Issues #1).
 
 ```vhdl
-shift_reg : process(tck)
+shift_reg : process(tck, jtag_reset)
 begin
-  if rising_edge(tck) then
-    if udr = '1' then                 -- Update-DR
+  if jtag_reset = '1' then            -- Test-Logic-Reset, asynchronous
+    io <= '0';
+  elsif rising_edge(tck) then
+    if sel = '0' then                 -- this DR not selected
+      io <= '0';
+    elsif update = '1' then           -- Update-DR
       io <= not io;
       if io = '0' then
-        dut_input <= data;            -- present new inputs
+        din <= data;                  -- present new inputs
       end if;
-    elsif cdr = '1' then              -- Capture-DR
+    elsif capture = '1' then          -- Capture-DR
       if io = '1' then
         datau <= dut_output;          -- sample DUT response
       end if;
-    elsif sdr = '1' then              -- Shift-DR
+    elsif shift = '1' then            -- Shift-DR
       if io = '0' then
         data  <= tdi & data(number_of_inputs-1 downto 1);   -- LSB-first out, MSB-first in
       else
@@ -68,14 +82,31 @@ begin
   end if;
 end process;
 
-tdo <= datau(0);
+tdo_reg : process(tck)                -- TDO launched on the falling edge
+begin
+  if falling_edge(tck) then
+    tdo <= datau(0);
+  end if;
+end process;
 ```
 
 The `if / elsif / elsif` chain is correct, not a bug: Update-DR, Capture-DR and Shift-DR are mutually exclusive TAP states, so only one branch can ever be eligible in a given cycle. Priority ordering between them is irrelevant.
 
 ### Timing note
 
-`tdo` is combinational from `datau(0)`, and `datau` is clocked on the **rising** edge of TCK. IEEE 1149.1 specifies that TDO changes on the falling edge of TCK so the host can sample it safely on the rising edge. The host currently reads on the rising edge too, which means launch and sample coincide. See Known Issues #2.
+`tdo` was originally combinational from `datau(0)`, and `datau` is clocked on the **rising** edge of TCK. The host also reads on the rising edge (MPSSE `0x2C`/`0x2E`), so launch and sample coincided — a race that survived only on timing margin at the slow divider (Known Issues #2).
+
+`tdo` is now registered on the **falling** edge of TCK, as IEEE 1149.1 requires. The data on the wire is unchanged:
+
+| Edge | Event |
+|---|---|
+| rising *N* | Capture-DR: `datau <= dut_output`, so `datau(0) = d0` |
+| falling *N* | `tdo <= d0` |
+| rising *N+1* | host samples `d0` — stable, launched half a cycle earlier; `datau` shifts to `d1` |
+| falling *N+1* | `tdo <= d1` |
+| rising *N+2* | host samples `d1` |
+
+Same bits, same order, no added latency — only the launch instant moves. The host therefore needs no change.
 
 ## 3. Host side — `host/scan_bscane2.py`
 

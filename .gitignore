@@ -30,6 +30,22 @@ vivado/
 Scan Chain/
 
 # ---------------------------------------------------------------
+# Simulator output -- regenerable by sim/run_sim.bat or run_sim.sh
+# ---------------------------------------------------------------
+sim/xsim.dir/
+sim/work/
+xsim.dir/
+*.wdb
+*.jou
+*.pb
+xelab.*
+xvhdl.*
+xsim.*
+webtalk*.jou
+webtalk*.log
+tb_snapshot*
+
+# ---------------------------------------------------------------
 # Python
 # ---------------------------------------------------------------
 __pycache__/

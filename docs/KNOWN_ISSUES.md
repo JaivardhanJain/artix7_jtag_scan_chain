@@ -73,6 +73,8 @@ IEEE 1149.1 requires TDO to change on the falling edge of TCK precisely to avoid
 
 **Severity: medium.** Produces false failures on legitimate don't-cares.
 
+> **STATUS: fixed in `host/scanchain.py`, offline-tested.** Mask applied per bit; `x`/`-` don't-cares supported and folded into the mask. Fully masked vectors now report `Skipped`. Covered by `test_mask_*` and `test_dont_care_in_expected_column`. Description below is of the original defect.
+
 ```python
 maskbits = lineContent[2]    # assigned, never read again
 ```
@@ -94,6 +96,8 @@ Any output bit that is legitimately unknown — a registered output during a res
 ## 4. Read parser depends on variables leaking from the write loop
 
 **Severity: medium.** Mis-parses instead of erroring.
+
+> **STATUS: fixed in `host/scanchain.py`, offline-tested.** Widths are fixed by the first vector, validated on every line with the offending line number in the error, and passed explicitly into the decoder. Covered by `test_rejects_ragged_*` and `test_decode_consumes_exactly_the_read_bytes`. Description below is of the original defect.
 
 The response-decoding loop reads `outputLen`, `no_of_bytes` and `no_of_bits`, none of which it computes — they hold whatever the final iteration of the *write* loop left behind. This is correct only while every vector in the file has identical input and output widths.
 
@@ -151,6 +155,8 @@ Both are dead. `state_out` was a debug port that is now commented out in `TopLev
 ## 8. Host script hygiene
 
 **Severity: low each, but they add up.**
+
+> **STATUS: fixed in `host/scanchain.py`.** argparse CLI; actionable FTDI-open and IDCODE-mismatch errors; `MAX_WRITE_CHUNK` named; pass/fail/throughput summary; non-zero exit on failure; dead imports and the stale MAX 10 comment removed. Table below describes the original.
 
 | Item | Detail |
 |---|---|

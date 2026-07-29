@@ -320,3 +320,58 @@ The general lesson, worth stating because it applies to the rest of this project
 | Anything host-side | MPSSE construction, batching and decoding are untouched by all of this. |
 
 D1 and D2 stay recorded as *fixed in HDL, pending hardware verification*. The model raises confidence; it does not close them.
+
+---
+
+## Entry 007 — 2026-07-29 — Host driver rewritten, with equivalence tests
+
+Addresses D3, D4 and D8. `host/scan_bscane2.py` is superseded by `host/scanchain.py`; the original is kept unchanged as the reference until the new one has a passing hardware run.
+
+### 7.1 The constraint that shaped the rewrite
+
+The MPSSE encoding and decoding are the only part of this project with **hardware-tier** evidence behind them — 4096/4096 vectors, twice. A rewrite that changed a single byte of that would have thrown away the strongest result available, and the resulting failures would have been indistinguishable from an FPGA problem.
+
+So the encoding and decoding are ported verbatim, including the parts that look odd: the `format(b, '08b')[2]` extraction of the final TMS-read bit, the reverse-order byte reassembly, and `split_bytes_bits` returning `(1, 8)` rather than `(2, 0)` for a 16-bit vector so the last bit is always available to clock out with TMS.
+
+`host/test_scanchain.py` re-implements the original algorithm verbatim from `scan_bscane2.py` and asserts byte-for-byte equivalence across **every width from 1 to 64 bits**, 20 random vectors each. That converts "the rewrite was careful" into something checkable, and it will keep being checkable as the driver evolves.
+
+### 7.2 D3 — mask applied
+
+`maskbits` was assigned and never read again. Now applied per bit, with `x`/`-` don't-cares in the expected column folded into the mask so there is exactly one comparison mechanism downstream. Both whole-vector (`1`/`0`) and per-bit masks are accepted.
+
+Fully masked vectors now report `Skipped` rather than `Success`. This is a deliberate output change and it has a useful consequence — see 7.5.
+
+### 7.3 D4 — widths fixed at parse time
+
+Widths are established by the first vector and checked on every subsequent line, with the offending line number and both widths in the error message. They are then passed explicitly into the decoder instead of being read out of whatever the write loop happened to leave behind.
+
+A test worth calling out is `test_decode_consumes_exactly_the_read_bytes`: for every width, the bytes the decoder consumes must equal the bytes the encoder told the device to send. A mismatch there would desynchronise every remaining vector in the batch — silently, since the data would still decode to something plausible. It is the same class of failure as D1, one layer up.
+
+### 7.4 D8 — ergonomics
+
+argparse; an FTDI-open error listing the four likely causes in order (Vivado holding the cable is first, because it is the most common); IDCODE validated against `--expect-idcode` and rejected if all-zeros or all-ones; `MAX_WRITE_CHUNK` named and explained; a pass/fail/skipped/throughput summary with a failures-only table; non-zero exit status. Dead `time`/`math`/`bitstring` imports and the "for MAX 10" comment removed.
+
+Two additions beyond the plan: `--dry-run`, which validates a tracefile with no board attached, and `--divider`, which turns the clock-rate sweep from an edit-and-rerun loop into a flag.
+
+### 7.5 A prediction the next hardware run will test
+
+Because masked vectors now report `Skipped`, diffing a fresh 46-vector run against `results/string_detector_output.txt` should show **exactly two changed lines** — the `mask = 0` vectors at lines 1 and 2.
+
+That prediction is worth stating in advance. Two changed lines confirms D3 is fixed and nothing else moved. Any *other* difference is a regression — and since the host's wire protocol is pinned by the equivalence tests, it would point at the HDL changes rather than the driver.
+
+### 7.6 Structure, and why it is not incidental
+
+Everything above `class JtagDevice` is pure: no hardware, no I/O. That is what makes 22 offline tests possible, and the boundary was drawn there deliberately — parsing, encoding and decoding are precisely where D3 and D4 lived.
+
+The corollary is the honest limitation: the tests stop at the device boundary. Nothing exercises `JtagDevice`, the USB batching path, or how the batch threshold interacts with the read count on a real cable. Those remain hardware-only.
+
+### 7.7 Verification status
+
+| | Status |
+|---|---|
+| Wire protocol unchanged | Verified offline, widths 1–64 |
+| D3, D4, D8 fixed | Verified offline, 22 tests |
+| Runs against a board | **Not attempted** |
+| FTDI transport and USB batching | **Untested** |
+
+D3 and D4 are recorded as *fixed, offline-tested* — a weaker claim than *fixed*, and the right one until the driver has moved a vector across a real cable.

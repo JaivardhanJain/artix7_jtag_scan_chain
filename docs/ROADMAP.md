@@ -34,16 +34,18 @@ The project as inherited will not elaborate. This has to come first or nothing b
 
 Refactor `host/scan_bscane2.py` into `host/scanchain.py`:
 
-- [ ] `argparse`: `--tracefile`, `--out`, `--channel`, `--divider`, `--expect-idcode`, `--verbose`.
-- [ ] Tracefile parser: strip CRLF, tolerate whitespace, **validate consistent widths across all lines**, honour the mask column, support `x`/`-` don't-cares, fail loudly with line numbers.
-- [ ] Wrap FTDI open in a readable error ("no FTDI device found — is Vivado holding the cable?").
-- [ ] Validate the IDCODE against the expected part; abort on mismatch.
-- [ ] Compute widths once at parse time instead of leaking them from the write loop (Known Issues #4).
-- [ ] Summary block: `N vectors, P pass, F fail, elapsed Xs, Y vectors/s`, plus a failures-only report with vector index, input, expected, got.
-- [ ] Non-zero exit code on any failure, so it can gate a script.
-- [ ] Delete unused imports and the stale MAX 10 comment; name the `61440` constant.
+- [x] `argparse`: `--tracefile`, `--out`, `--channel`, `--divider`, `--expect-idcode`, `--verbose`. Plus `--dry-run`, which validates a tracefile with no board attached.
+- [x] Tracefile parser: strip CRLF, tolerate whitespace, **validate consistent widths across all lines**, honour the mask column, support `x`/`-` don't-cares, fail loudly with line numbers.
+- [x] Wrap FTDI open in a readable error listing the four likely causes in order.
+- [x] Validate the IDCODE against the expected part; abort on mismatch, and on all-zeros/all-ones.
+- [x] Compute widths once at parse time instead of leaking them from the write loop (Known Issues #4).
+- [x] Summary block: `N vectors, P pass, F fail, elapsed Xs, Y vectors/s`, plus a failures-only table with line number, input, expected, got.
+- [x] Non-zero exit code on any failure, so it can gate a script.
+- [x] Delete unused imports and the stale MAX 10 comment; name the `61440` constant.
+- [x] **`host/test_scanchain.py`** — not originally scoped as a deliverable. 22 offline tests, including byte-for-byte equivalence with the original encoder/decoder across widths 1–64, which is what protects the one part of this project with real hardware evidence behind it.
+- [ ] Run it against hardware. Expect exactly two lines to differ from the committed result (the masked vectors, now `Skipped`).
 
-**Exit criterion:** a malformed tracefile produces a useful error, and a passing run prints one summary line.
+**Exit criterion:** a malformed tracefile produces a useful error, and a passing run prints one summary line. *Met offline; hardware run outstanding.*
 
 ## Phase 4 — Automation that makes it plug-and-play (~3 h)
 

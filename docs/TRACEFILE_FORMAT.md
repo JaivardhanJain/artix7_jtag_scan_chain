@@ -22,7 +22,7 @@ Example (`examples/string_detector/TRACEFILE.txt`):
 |---|---|
 | 1 | Input vector. One `0`/`1` per bit of `input_vector`, width must equal `number_of_inputs`. |
 | 2 | Expected output. One `0`/`1` per bit of `output_vector`, width must equal `number_of_outputs`. |
-| 3 | Mask. `1` = compare this vector, `0` = ignore the result. **Currently parsed and discarded — see Known Issues #3.** |
+| 3 | Mask. Optional. Either a single `1`/`0` (whole-vector enable) or one character per output bit (per-bit mask). Applied by `scanchain.py`; **ignored by the original `scan_bscane2.py` — see Known Issues #3.** |
 
 ## Bit ordering
 
@@ -74,10 +74,20 @@ Each pair is one clock cycle. Note that the output is captured after the rising-
 
 ## Formatting rules
 
-- Exactly one space between columns. The parser uses `split(' ')`, so multiple consecutive spaces create empty fields.
-- Trailing whitespace is tolerated but inconsistent in the bundled file — don't rely on it.
-- Line endings: **LF**. The repo's `.gitattributes` normalises these on checkout. The original file was CRLF and worked only incidentally.
-- Every line must have the same input width and the same output width. Ragged files are not detected and will mis-parse — see Known Issues #4.
+`scanchain.py` is tolerant of formatting; the original `scan_bscane2.py` was not. Rules for the current parser:
+
+- Any run of whitespace separates columns. (The old parser used `split(' ')`, so two spaces produced an empty field.)
+- CRLF and trailing whitespace are handled. The bundled file has both, inconsistently.
+- Blank lines are skipped; lines beginning with `#` are comments.
+- The mask column is optional and defaults to `1`.
+- Don't-care characters `x`, `X` and `-` are allowed in the expected-output column and are folded into the mask.
+- **Every line must have the same input width and the same output width.** This is now enforced, with the offending line number in the error message. Previously ragged files were not detected and mis-parsed silently — Known Issues #4.
+
+Validate a tracefile without a board attached:
+
+```
+python host/scanchain.py --dry-run -t path/to/TRACEFILE.txt
+```
 
 ## Generating tracefiles
 
@@ -99,12 +109,19 @@ The bundled `results/passthrough_4096_out.txt` is exactly this kind of exhaustiv
 The script writes one line per vector:
 
 ```
-<input_bits> <bits_read_back> <Success|Failure>
+<input_bits> <bits_read_back> <Success|Failure|Skipped>
 ```
 
 ```
-0000010 0 Success
+0000010 0 Skipped
 0001000 0 Success
 ```
 
-There is currently no summary line and no non-zero exit code on failure — see Known Issues #8.
+`Skipped` means the vector was fully masked. The original script had no such verdict — it reported masked vectors as `Success` — so a diff between old and new output shows exactly the masked lines changing.
+
+`scanchain.py` also prints a summary and returns a non-zero exit status if any unmasked vector failed:
+
+```
+46 vectors: 44 passed, 0 failed, 2 skipped (masked)
+0.31 s elapsed, 148 vectors/s
+```

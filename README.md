@@ -51,7 +51,7 @@ Full signal-level detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | Path | Contents |
 |---|---|
 | `hdl/` | The reusable harness — `TopLevel.vhd` (BSCANE2 wiring), `scan_core.vhd` (all scan logic, vendor-neutral), `constraints.xdc`. |
-| `host/` | `scan_bscane2.py`, the host-side JTAG driver. |
+| `host/` | `scanchain.py` (current driver), `scan_bscane2.py` (original, kept as reference), and offline tests. |
 | `examples/` | Per-lab DUT wrappers and their tracefiles. One folder per design. |
 | `results/` | Captured output from real hardware runs. |
 | `scripts/` | Headless Vivado build and program scripts. |
@@ -117,17 +117,26 @@ vivado -mode batch -source scripts/program.tcl
 ### 4. Run the test
 
 ```
-python host/scan_bscane2.py examples/string_detector/TRACEFILE.txt output.txt
+python host/scanchain.py -t examples/string_detector/TRACEFILE.txt -o output.txt
 ```
 
-The script prints the IDCODE it read, then writes one line per vector:
+The script prints the IDCODE it read, writes one line per vector, and finishes with a summary:
 
 ```
-0000010 0 Success
-0000011 0 Success
+0000010 0 Skipped
+0001000 0 Success
+...
+46 vectors: 44 passed, 0 failed, 2 skipped (masked)
+0.31 s elapsed, 148 vectors/s
 ```
 
-Columns are: input vector, value read back, verdict.
+Columns are: input vector, value read back, verdict. Exit status is 0 only if every unmasked vector passed.
+
+To check a tracefile without a board attached:
+
+```
+python host/scanchain.py --dry-run -t examples/string_detector/TRACEFILE.txt
+```
 
 ---
 
@@ -154,8 +163,8 @@ Bit order is **MSB-first as written**, i.e. the leftmost character is `input_vec
 |---|---|---|---|
 | 1 | `io` phase bit has no reset path (`BSCANE2.RESET` left open) | A crashed script permanently desyncs host and FPGA. Every later result is wrong. | **Fixed, pending hardware verification** |
 | 2 | TDO launched and sampled on the same clock edge | Works at the current divider by timing luck, not design. | **Fixed, pending hardware verification** |
-| 3 | Mask column parsed but never applied | Don't-care outputs are compared as hard values. | Open |
-| 4 | Read parser reuses widths leaked from the write loop | Ragged tracefiles mis-parse instead of erroring. | Open |
+| 3 | Mask column parsed but never applied | Don't-care outputs are compared as hard values. | **Fixed, offline-tested** |
+| 4 | Read parser reuses widths leaked from the write loop | Ragged tracefiles mis-parse instead of erroring. | **Fixed, offline-tested** |
 | 5 | `StringDetector.vhd` is not in this repo | `examples/string_detector` will not elaborate as-is. | Open |
 
 Nine issues in total. Full write-ups and fixes: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md). How each was found, and which phase of the plan addresses it: [docs/ENGINEERING_LOG.md](docs/ENGINEERING_LOG.md). What has actually been measured, and how strong the evidence is: [docs/RESULTS.md](docs/RESULTS.md).
@@ -214,9 +223,27 @@ The model also earned its keep immediately: the first version of the bit-order t
 
 **What it does not prove.** The model is not a simulator — it cannot catch VHDL syntax or elaboration errors, and it assumes the RTL does what the model says. The VHDL testbench itself has not been compiled; no VHDL toolchain was available here. Running `sim/run_sim.bat` is the first thing to do at your machine, before any hardware work.
 
+### 5. Host driver rewritten as `host/scanchain.py` — fixes [#3](docs/KNOWN_ISSUES.md), [#4](docs/KNOWN_ISSUES.md), [#8](docs/KNOWN_ISSUES.md)
+
+**What.** `host/scan_bscane2.py` is superseded by `host/scanchain.py`, with 22 offline tests in `host/test_scanchain.py`. The original is kept, unchanged, as the reference until the new one has a passing hardware run.
+
+**What deliberately did *not* change: the wire protocol.** The MPSSE encoding and decoding carry 4096/4096 vectors of hardware evidence — more than anything else in this project — so rewriting them would have thrown away the strongest result available. They are ported verbatim. `test_scanchain.py` re-implements the original algorithm from `scan_bscane2.py` and asserts the new code emits byte-identical commands and decodes identically for **every width from 1 to 64 bits**. That is the guard against the rewrite quietly breaking what already worked.
+
+**Why — the problems in the original.**
+
+- *Mask ignored (#3).* `maskbits = lineContent[2]` was assigned and never read again, so every vector was compared as an exact match. The bundled tracefile's first two vectors carry `mask = 0` — they were meant to be skipped and were being compared anyway.
+- *Width leakage (#4).* The decode loop used `outputLen`, `no_of_bytes` and `no_of_bits` left behind by the final iteration of the *write* loop. Correct only while every vector shares one width; a ragged file decoded at the wrong width and produced plausible, wrong values with no error.
+- *Ergonomics (#8).* Positional arguments, a raw `ftd2xx` traceback when no board was attached, an IDCODE that was printed but never checked, `61440` appearing twice unexplained, no summary across 4096 lines of output, and exit code 0 regardless — so it could not gate a script.
+
+**Structure.** Everything above `class JtagDevice` is pure: no hardware, no I/O. Not incidental — parsing, encoding and decoding are exactly where the defects were, and they are now the parts testable without a board.
+
+**Verification.** 22 tests, all passing offline. Byte-for-byte equivalence with the original across widths 1–64; read-count consistency (the decoder must consume exactly the bytes the encoder requested, or every later vector in the batch desynchronises silently); tracefile parsing including CRLF, comments and ragged-width rejection with line numbers; and mask handling including per-bit masks and don't-cares. **Untested:** anything touching the FTDI device or the USB batching path.
+
+**One deliberate output difference.** Fully masked vectors now report `Skipped` instead of `Success`, so a diff against `results/string_detector_output.txt` will show **exactly two changed lines** — the two `mask = 0` vectors. Those two lines are the visible proof the mask fix works; any other difference in that diff is a regression.
+
 ### Still unchanged
 
-`host/scan_bscane2.py` is untouched, as are all example DUTs and tracefiles. Issues #3, #4, #5, #7 and #8 remain open. Deliberately: keeping the host constant across the HDL change means the parity run isolates the HDL fixes, and a diff against the committed results is a clean signal.
+All example DUTs and tracefiles. Issues #5, #6 and #7 remain open.
 
 ---
 

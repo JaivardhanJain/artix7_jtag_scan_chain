@@ -141,6 +141,8 @@ No such file exists anywhere in the project. `examples/alu/ALU.vhd` is an unrela
 
 **Severity: low, but it hides future errors.**
 
+> **STATUS: resolved.** `hdl/constraints.xdc` now contains only comments — a portless top level needs no I/O constraints. Both the dead `state_out` assignment and the `UCIO-1` DRC downgrade are gone, and the file explains why so nobody re-adds them. Description below is of the original state.
+
 `hdl/constraints.xdc` contains exactly two lines:
 
 ```tcl

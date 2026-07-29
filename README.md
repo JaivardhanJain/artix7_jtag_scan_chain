@@ -50,11 +50,11 @@ Full signal-level detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 | Path | Contents |
 |---|---|
-| `hdl/` | The reusable harness — `TopLevel.vhd` (BSCANE2 wiring), `scan_core.vhd` (all scan logic, vendor-neutral), `constraints.xdc`. |
+| `hdl/` | The reusable harness — `TopLevel.vhd` (BSCANE2 wiring), `scan_core.vhd` (all scan logic, vendor-neutral), `constraints.xdc` (empty by design). |
 | `host/` | `scanchain.py` (current driver), `scan_bscane2.py` (original, kept as reference), and offline tests. |
 | `examples/` | Per-lab DUT wrappers and their tracefiles. Start with `seq1011`, which is complete and self-contained. |
 | `results/` | Captured output from real hardware runs. |
-| `scripts/` | Headless Vivado build and program scripts. |
+| `scripts/` | Headless Vivado build and program scripts, plus `new_lab.py`, the DUT wrapper generator. |
 | `sim/` | Self-checking testbench, an offline Python model, and run scripts. |
 | `docs/` | Architecture, tracefile format, migration notes, troubleshooting, roadmap. |
 | `assets/` | Presentation material. |
@@ -91,14 +91,13 @@ entity DUT is
 end entity DUT;
 ```
 
-Then set the widths at the top of `hdl/TopLevel.vhd` to match:
+**Or generate it.** `new_lab.py` reads your entity's port list, writes the wrapper with the correct bit slicing, and patches the width constants into `hdl/TopLevel.vhd`:
 
-```vhdl
-constant number_of_inputs  : integer := 7;
-constant number_of_outputs : integer := 1;
+```
+python3 scripts/new_lab.py path/to/YourDesign.vhd --patch-toplevel
 ```
 
-> These two edits are currently manual and are the main friction point for adding a new lab. Automating them is roadmap item **Phase 4 / `new_lab.py`**.
+Hand-writing the wrapper and editing the two constants was the main friction in adding a new design — mechanical, easy to get subtly wrong, and a wrong slice makes every vector fail with no indication of why.
 
 ### 2. Build the bitstream
 

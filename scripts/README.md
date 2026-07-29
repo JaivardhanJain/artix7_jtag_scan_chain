@@ -4,21 +4,63 @@
 |---|---|---|
 | `build.tcl` | Headless Vivado project creation + synth + impl + bitstream | Written, **not yet validated on hardware** |
 | `program.tcl` | Headless Hardware Manager programming, releases the cable on exit | Written, **not yet validated on hardware** |
-| `new_lab.py` | Generate a `DUT.vhd` wrapper and width constants from a DUT entity | Not written — Roadmap Phase 4 |
+| `new_lab.py` | Generate a `DUT.vhd` wrapper and width constants from a DUT entity | **Working**, 19 offline tests |
+| `test_new_lab.py` | Tests for the generator. No toolchain needed. | — |
 
 ## Usage
 
 ```
-vivado -mode batch -source scripts/build.tcl -tclargs examples/string_detector
+python3 scripts/new_lab.py examples/seq1011/Seq1011.vhd --patch-toplevel
+vivado -mode batch -source scripts/build.tcl -tclargs examples/seq1011
 vivado -mode batch -source scripts/program.tcl
-python host/scan_bscane2.py examples/string_detector/TRACEFILE.txt output.txt
+python host/scanchain.py -t examples/seq1011/TRACEFILE.txt -o output.txt
 ```
 
 Optional second argument to `build.tcl` overrides the part:
 
 ```
-vivado -mode batch -source scripts/build.tcl -tclargs examples/string_detector xc7a15tftg256-1
+vivado -mode batch -source scripts/build.tcl -tclargs examples/seq1011 xc7a15tftg256-1
 ```
+
+---
+
+## `new_lab.py` — DUT wrapper generator
+
+```
+python3 scripts/new_lab.py <your_design.vhd> [--patch-toplevel]
+```
+
+Reads the entity's port list, works out a bit layout, writes `DUT.vhd` beside the source, and prints the two width constants — optionally patching them into `hdl/TopLevel.vhd` directly.
+
+**Why it exists.** Adapting the harness to a new design meant hand-writing a wrapper with correct bit slicing and hand-editing two constants. Both are mechanical, both are easy to get subtly wrong, and a wrong slice produces a run where every vector fails with no indication of why. That was the real barrier to anyone else using this — more than any of the defects in [KNOWN_ISSUES.md](../docs/KNOWN_ISSUES.md).
+
+**Bit layout convention:**
+
+```
+input_vector(0)  = clock, if present
+input_vector(1)  = reset, if present
+input_vector(N)  = remaining inputs, first-declared in the HIGHEST bits
+output_vector    = outputs, first-declared in the highest bits
+```
+
+Clock at bit 0 is deliberate. A clocked DUT needs vector pairs differing only in the clock, and putting it last makes those pairs readable at a glance:
+
+```
+0001000 0 1     <- clock = 0
+0001001 0 1     <- clock = 1
+```
+
+Clock and reset are matched by name (`clock`, `clk`, `reset`, `rst`, …). Override with `--clock` / `--reset`, or pass `--no-special` to lay every port out in declaration order.
+
+**Other flags:** `--entity` when a file declares several, `--dry-run` to print without writing, `--out` for a different path.
+
+**Verification.** `test_reproduces_committed_wrappers` runs the generator against the same entities the committed wrappers were hand-written for, and requires the port maps to match. Those wrappers are known-good — one has 4096 passing hardware vectors behind it — so agreeing with them is the strongest available evidence the layout is right, and it will catch any future change to the convention. A second test asserts the assigned bit ranges tile the vector exactly, since a gap or an overlap would be silent corruption.
+
+```
+python3 scripts/test_new_lab.py
+```
+
+**Limits.** It flattens `std_logic` and `std_logic_vector` only. `inout` ports are rejected with an explanation — the scan chain carries inputs and outputs separately and cannot represent a bidirectional port. Integers, enums and records must be converted in your design first. It does not write a tracefile; see `examples/*/gen_tracefile.py` for worked examples.
 
 ## Why headless
 

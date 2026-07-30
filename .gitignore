@@ -80,3 +80,20 @@ Desktop.ini
 .idea/
 *~
 *.swp
+
+# ---------------------------------------------------------------
+# Bench run outputs -- transient working files from a bench session.
+# Anything worth keeping goes in results/ with a descriptive name and
+# is committed deliberately.
+# ---------------------------------------------------------------
+/parity.txt
+/orig.txt
+/scratch.txt
+/after_interrupt.txt
+/after.txt
+/prefix_baseline.txt
+/prefix_after.txt
+/alu.txt
+/seq.txt
+/d??.txt
+/output.txt

@@ -248,6 +248,8 @@ All example DUTs and tracefiles. Issues #5, #6 and #7 remain open.
 
 ## Roadmap
 
+**Next step: [docs/BENCH_CHECKLIST.md](docs/BENCH_CHECKLIST.md)** — everything that cannot be verified without the board, in order, with expected outputs.
+
 Six phases, ~11–12 hours: make it build reproducibly, fix the two real bugs, harden the host script, automate the build/program/wrapper-generation, add a hardware-free simulation testbench, and document the results. See [docs/ROADMAP.md](docs/ROADMAP.md) for the phase checklists, and [docs/ENGINEERING_LOG.md](docs/ENGINEERING_LOG.md) for the state this project was inherited in, the reasoning behind the phase ordering, and a defect-to-phase traceability matrix.
 
 ---

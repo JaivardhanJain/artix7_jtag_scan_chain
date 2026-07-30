@@ -2,6 +2,8 @@
 
 Six phases, ~11–12 hours total across 4–5 sessions. Ordered so the repo is buildable before anything else is attempted.
 
+Hardware steps are broken out with expected outputs in [BENCH_CHECKLIST.md](BENCH_CHECKLIST.md).
+
 For the state this project was inherited in, how each defect was found, why the phases are ordered this way, and a defect-to-phase traceability matrix, see [ENGINEERING_LOG.md](ENGINEERING_LOG.md).
 
 **Feasibility: 8.5/10.** The protocol is already proven — 4096/4096 vectors pass on the bundled passthrough test — so there are no unknown-unknowns in the hard part. Phases 1–3 are mechanical. Phase 4 is ordinary scripting. The only genuine engineering is the TDO edge fix and the testbench, and both are bounded.

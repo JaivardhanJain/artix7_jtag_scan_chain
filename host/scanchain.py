@@ -523,7 +523,12 @@ class Result:
     masked: bool
 
 
-def run_vectors(dev: JtagDevice, trace: Tracefile, verbose: bool = False) -> List[Result]:
+class AbortedRun(Exception):
+    """Raised by the deliberate mid-vector abort used to test KNOWN_ISSUES #1."""
+
+
+def run_vectors(dev: JtagDevice, trace: Tracefile, verbose: bool = False,
+                abort_after_input: Optional[int] = None) -> List[Result]:
     """Batch vectors into USB transfers, then decode and compare the responses."""
     results: List[Result] = []
     pending: List[Vector] = []
@@ -545,7 +550,25 @@ def run_vectors(dev: JtagDevice, trace: Tracefile, verbose: bool = False) -> Lis
         n_read = 0
         pending = []
 
-    for vec in trace.vectors:
+    for i, vec in enumerate(trace.vectors):
+        # --- fault injection for the KNOWN_ISSUES #1 test ----------------
+        # Send only the INPUT phase of this vector, then stop. That leaves the
+        # FPGA's `io` phase bit at '1' while the host walks away, which is
+        # exactly the state a crash or a dropped USB transfer produces.
+        #
+        # This exists because the failure cannot be triggered by hand. A run
+        # completes in under a tenth of a second, so Ctrl-C never lands in the
+        # window; and interrupting *between* vectors proves nothing, because a
+        # complete vector performs both phases and leaves `io` back at '0'
+        # whether or not the reset path exists. The desync needs a run that
+        # dies partway through a single vector.
+        if abort_after_input is not None and i == abort_after_input:
+            flush()
+            dev.transfer(encode_input_scan(vec.inputs), 0)
+            raise AbortedRun(
+                f"aborted after the input phase of vector {i} "
+                f"(line {vec.line_no}); the FPGA's phase bit is now inverted")
+
         cmds = encode_input_scan(vec.inputs)
         out_cmds, out_read = encode_output_scan(trace.output_width)
         cmds += out_cmds
@@ -619,6 +642,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--dry-run", action="store_true",
                     help="parse and validate the tracefile, then exit. "
                          "No hardware needed.")
+    ap.add_argument("--abort-after-input", type=int, metavar="N", default=None,
+                    help="FAULT INJECTION for the KNOWN_ISSUES #1 test: send "
+                         "only the input phase of vector N, then exit, leaving "
+                         "the FPGA's phase bit inverted. Rerun normally "
+                         "afterwards WITHOUT reprogramming -- it should pass. "
+                         "On the pre-fix design it does not.")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
 
@@ -664,7 +693,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         dev.select_user1()
 
         start = time.time()
-        results = run_vectors(dev, trace, args.verbose)
+        try:
+            results = run_vectors(dev, trace, args.verbose,
+                                  args.abort_after_input)
+        except AbortedRun as exc:
+            print(f"\nABORTED ON PURPOSE: {exc}")
+            print("The FPGA is now mid-vector, phase bit inverted.")
+            print("Now rerun WITHOUT reprogramming:")
+            print(f"  python host/scanchain.py -t {args.tracefile} -o after.txt")
+            print("A full pass proves the TAP-reset recovery path works "
+                  "(KNOWN_ISSUES #1).")
+            return 3
         elapsed = time.time() - start
     except DeviceError as exc:
         print(f"error: {exc}", file=sys.stderr)

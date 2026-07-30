@@ -266,6 +266,61 @@ The third produced two confident and wrong diagnoses before a bisection against 
 
 ---
 
+## 5B. THE D1 A/B EXPERIMENT — the desync defect demonstrated on silicon
+
+**Tier: hardware.** 2026-07-31. Controlled comparison, one variable.
+
+Two bitstreams differing **only** in whether `BSCANE2.RESET`/`SEL` reach `scan_core`. `scan_core.vhd` itself is byte-identical between them; the pre-fix build ties `jtag_reset => '0'`, `sel => '1'` in `TopLevel.vhd`, reproducing the original's `open` wiring.
+
+Both were subjected to the same fault: `--abort-after-input 10` sends only the input phase of vector 10 and exits, leaving the FPGA's `io` phase bit inverted — the state a crash or dropped USB transfer produces.
+
+| Build | Before injection | After injection, **no reprogramming** |
+|---|---|---|
+| **Fixed** (`RESET`/`SEL` wired) | 44/44 pass | **44/44 pass** — byte-identical to the baseline |
+| **Pre-fix** (`RESET`/`SEL` open) | 44/44 pass | **41 pass, 3 FAIL** |
+
+**D1 is a real defect, and the fix is what prevents it.** Both builds are healthy until interrupted; only the pre-fix build stays broken afterwards. That is the claim the whole issue rested on, now demonstrated rather than argued.
+
+### 5B.1 The failure is worse than "3 vectors failed"
+
+The three failures are lines 15, 35 and 39 — and those are **exactly the three vectors in the tracefile whose expected output is `1`.** Every other vector expects `0`.
+
+The desynced design returns a constant `0`: with `io` inverted, Capture-DR never fires in the phase that loads `datau`, so the output register is never written and `tdo` reads its reset value forever.
+
+Which means:
+
+```
+43 of 46 vectors expect 0
+ 3 of 46 vectors expect 1  (the detections)
+
+A stuck-at-0 harness fails only those 3
+=> 41 of 44 unmasked vectors still report "Success"
+=> 93% of the suite passes while the harness is completely broken
+```
+
+**This is the silent-corruption property, measured.** The original write-up argued D1 was dangerous because it fails quietly. On this tracefile it is quieter than expected: a 93% pass rate on a design that is returning a constant. A student glancing at the summary line — "41 passed" — would reasonably conclude their DUT mostly works.
+
+And the visible failures are the *detections*, i.e. precisely the interesting behaviour the test exists to check. A stuck-at-0 scan chain looks exactly like a DUT that never asserts its output.
+
+### 5B.2 Why the earlier "recovery" attempts proved nothing
+
+Two earlier attempts ran a complete tracefile and then reran — and passed on the pre-fix design too. That was not evidence of recovery. **A complete vector performs both phases and leaves `io` back at `'0'` regardless of whether the reset path exists.** The desync requires dying *between* the two phases of a single vector, and at 0.01–0.08 s per run that window is unreachable by hand.
+
+Which is why `--abort-after-input` exists. The fault had to be injected deterministically; it could not be caught.
+
+### 5B.3 Contrast with the earlier stuck-at-1
+
+Both failure modes present as a constant on TDO, and they are not the same fault:
+
+| Symptom | Cause | Mechanism |
+|---|---|---|
+| Stuck at **1** | Host bug — `encode_ir` sent TMS=0 | USER1 never selected; the user DR was never in the scan path, so TDO floated |
+| Stuck at **0** | D1 — phase desync | USER1 *is* selected; `datau` is simply never loaded |
+
+Worth recording together, because "TDO is constant" was ambiguous between a host fault and an HDL fault, and telling them apart is what the bisection against `scan_bscane2.py` accomplished.
+
+---
+
 ## 6. Outstanding — hardware
 
 Simulation and synthesis are complete. Everything remaining needs the board.
@@ -278,7 +333,7 @@ Simulation and synthesis are complete. Everything remaining needs the board.
 | ~~46-vector parity run~~ | ~~2 lines differ~~ | **Done — section 5A. Exactly 2, as predicted** |
 | `scripts/program.tcl` programs and releases the cable | device programmed | Same |
 | ~~46-vector run vs `results/string_detector_output.txt`~~ | ~~identical except lines 1–2~~ | **Done — section 5A** |
-| Interrupt mid-run, rerun **without reprogramming** | full pass | Issue #1. **Fails on the original code** — this is the fix's entire justification |
+| ~~Interrupt mid-run, rerun without reprogramming~~ | ~~full pass~~ | **Done — section 5B, with the pre-fix A/B** |
 | Divider sweep down from `0x3B`, before vs after the TDO fix | safe ceiling rises | Issue #2, and yields the one measurable throughput figure in the project |
 
 ### 6.2 Deliberately out of scope for simulation
@@ -303,8 +358,9 @@ Simulation and synthesis are complete. Everything remaining needs the board.
 | The `scan_core` split preserves behaviour | **Hardware** — 46-vector parity run, exactly the 2 predicted differences |
 | `scanchain.py` works on real hardware | **Hardware** — 44/44 unmasked |
 | Issue #3 (mask) is fixed | **Hardware** — masked vectors report `Skipped` |
-| Issue #1 (desync) was a real defect | **Model** — reproduced against the pre-fix design |
-| Issue #1 is fixed | **Simulation** — recovery via both TAP reset and deselect. Hardware interrupt test outstanding |
+| Issue #1 (desync) was a real defect | **Hardware** — pre-fix build fails the injected fault, 3/44 |
+| Issue #1 is fixed | **Hardware** — fixed build recovers byte-identically; controlled A/B, one variable |
+| Issue #1 fails *silently* | **Hardware** — 93% of vectors still report Success while the harness returns a constant |
 | Issue #2 (TDO edge) is fixed | **Simulation** — no off-by-one. Real timing margin unmeasured |
 | The host rewrite preserves the wire protocol | **Model** — byte-for-byte equivalence, widths 1–64 |
 | Issues #3, #4, #8 are fixed | **Model** — 22 offline tests. No hardware run |

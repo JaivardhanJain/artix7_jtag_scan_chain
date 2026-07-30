@@ -827,3 +827,60 @@ A test written from the same model as the code under test can only confirm the m
 | ALU 256-vector exhaustive, generated wrapper end to end | **Outstanding** |
 | seq1011 602-vector run | **Outstanding** |
 | D2 — settle it by rebuilding with the falling-edge register | **Optional**, one cycle |
+
+---
+
+## Entry 015 — 2026-07-31 — D1 demonstrated on silicon, and it is quieter than claimed
+
+The A/B ran. Two bitstreams, differing **only** in whether `BSCANE2.RESET`/`SEL` reach `scan_core` — `scan_core.vhd` byte-identical between them, the pre-fix build tying `jtag_reset => '0'`, `sel => '1'` in `TopLevel.vhd` to reproduce the original's `open` wiring.
+
+Same injected fault on both: `--abort-after-input 10`, which sends only the input phase of a vector and exits, leaving `io` inverted.
+
+| Build | Before | After injection, no reprogramming |
+|---|---|---|
+| Fixed | 44/44 | **44/44, byte-identical to baseline** |
+| Pre-fix | 44/44 | **41 pass, 3 fail** |
+
+Both healthy until interrupted; only the pre-fix build stays broken. One variable, both directions. **D1 is a real defect and the reset path is what prevents it** — no longer an argument from reading code.
+
+### 15.1 The number that matters is 93%, not 3
+
+The three failures are lines 15, 35 and 39, which are **exactly the three vectors in this tracefile whose expected output is `1`.** The other 43 expect `0`.
+
+The desynced design returns a constant `0` — with `io` inverted, Capture-DR never fires in the phase that loads `datau`, so the output register is never written. So the failure signature is:
+
+```
+41 of 44 unmasked vectors still report Success
+= 93% of the suite passing on a harness that is returning a constant
+```
+
+The original write-up said D1 was dangerous because it fails quietly. It is quieter than that argument gave it credit for. A student reading the summary line would see "41 passed, 3 failed" and reasonably conclude their DUT has a minor bug — when in fact the scan chain is dead and the design under test is not being observed at all.
+
+Worse, the three visible failures are the *detections* — the interesting behaviour the test exists to check. **A stuck-at-0 scan chain is indistinguishable from a DUT that never asserts its output.** That is the most plausible-looking possible failure, and it is the one this defect produces.
+
+This is a better result than "everything fails". A total failure is self-announcing. This one is not, and now there is a measured figure for exactly how not.
+
+### 15.2 Why the two earlier attempts proved nothing
+
+Two earlier runs completed a full tracefile, reran, and passed — on both builds. That looked like recovery and was not.
+
+**A complete vector performs both phases and leaves `io` back at `'0'` whether or not the reset path exists.** The desync needs a run that dies *between* the two phases of one vector. At 0.01–0.08 s per run, that window cannot be hit by hand, so the bench checklist's "press Ctrl-C mid-run" was asking for something physically impossible — my error in writing it.
+
+Hence `--abort-after-input`. The fault had to be injected deterministically rather than caught opportunistically. Building the fault injection into the tool was the step that made the experiment possible at all.
+
+### 15.3 Two constants, two different faults
+
+Both major failures this session presented as a constant on TDO:
+
+| Symptom | Cause | Mechanism |
+|---|---|---|
+| Stuck at **1** | Host: `encode_ir` sent TMS=0 | USER1 never selected — user DR never in the scan path, TDO floating |
+| Stuck at **0** | D1: phase desync | USER1 selected; `datau` simply never loaded |
+
+"TDO is constant" was ambiguous between a host fault and an HDL fault, and I guessed wrong about it twice. What resolved it was not inspection but bisection — running the untouched original driver against the same bitstream. Recording the two signatures together so the next person can tell them apart from the value alone.
+
+### 15.4 Status
+
+D1 moves to **hardware-demonstrated**, with a controlled A/B and a quantified silent-failure rate. Of everything in this project this is the strongest single result: it shows a defect the original author's 4096-vector sweep could not have exposed, because an uninterrupted run never enters the failing state.
+
+The pre-fix `TopLevel.vhd` edit is uncommitted and must be reverted with `git checkout hdl/TopLevel.vhd`, then rebuilt and reprogrammed.

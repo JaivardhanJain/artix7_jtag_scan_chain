@@ -4,7 +4,7 @@ Automated, vector-based functional testing of VHDL designs on a Xilinx Artix-7 F
 
 This is an Artix-7 port of an existing MAX 10 flow. The MAX 10 version used Altera's Virtual JTAG IP; this one uses Xilinx's `BSCANE2` primitive. See [docs/MIGRATION_MAX10_TO_ARTIX7.md](docs/MIGRATION_MAX10_TO_ARTIX7.md).
 
-> **Status: working, hardware-verified.** One command builds, one programs, one runs. The reworked harness reproduces the original's results on the board: **44/44 unmasked vectors, with exactly the two predicted differences** from the pre-change capture ([docs/RESULTS.md](docs/RESULTS.md) §5A). Five defects fixed and confirmed; **one supposed defect (#2) is documented as unproven in both directions** rather than resolved by assertion. Outstanding: the desync recovery test and the clock-rate sweep. See [Changes to the original implementation](#changes-to-the-original-implementation) and [docs/RESULTS.md](docs/RESULTS.md), which separates what is proven from what is argued.
+> **Status: working, hardware-verified.** One command builds, one programs, one runs. The reworked harness reproduces the original's results on the board: **44/44 unmasked vectors, with exactly the two predicted differences** from the pre-change capture ([docs/RESULTS.md](docs/RESULTS.md) §5A). Five defects fixed and confirmed; **one supposed defect (#2) is documented as unproven in both directions** rather than resolved by assertion. The desync defect (#1) is demonstrated on silicon by a controlled A/B against a pre-fix bitstream. Outstanding: the clock-rate sweep. See [Changes to the original implementation](#changes-to-the-original-implementation) and [docs/RESULTS.md](docs/RESULTS.md), which separates what is proven from what is argued.
 
 ---
 
@@ -164,7 +164,7 @@ Bit order is **MSB-first as written**, i.e. the leftmost character is `input_vec
 
 | # | Issue | Impact | Status |
 |---|---|---|---|
-| 1 | `io` phase bit has no reset path (`BSCANE2.RESET` left open) | A crashed script permanently desyncs host and FPGA. Every later result is wrong. | **Fixed, simulation-verified** |
+| 1 | `io` phase bit has no reset path (`BSCANE2.RESET` left open) | A crashed run desyncs host and FPGA permanently — and **93% of vectors still report Success** while the harness returns a constant. | **Fixed, demonstrated on hardware by A/B** |
 | 2 | TDO launch edge | Unclear — see below | **Unproven both ways.** Reverted to the original. The evidence once used to close it turned out to be an unrelated host bug. [Details](docs/KNOWN_ISSUES.md) |
 | 3 | Mask column parsed but never applied | Don't-care outputs are compared as hard values. | **Fixed, hardware-confirmed** |
 | 4 | Read parser reuses widths leaked from the write loop | Ragged tracefiles mis-parse instead of erroring. | **Fixed, hardware-exercised** |

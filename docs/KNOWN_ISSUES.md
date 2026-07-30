@@ -8,7 +8,13 @@ Ordered by severity. Issues 1 and 2 can produce results that look fine but aren'
 
 **Severity: high.** Can invalidate an entire run with no visible error.
 
-> **STATUS: fixed, verified in simulation and synthesis, pending hardware.** `BSCANE2.RESET` and `SEL` are wired into `scan_core`, which clears `io` asynchronously in Test-Logic-Reset and synchronously when the DR is deselected. Confirmed by tb_scan_core tests 2 and 3 under Vivado xsim 2020.2 — recovery works via both paths. **Also confirmed in the synthesised netlist: `io` maps to the design's only `FDCE` (flip-flop with asynchronous clear) among 23 plain `FDRE`s, so the reset path survived into hardware primitives.** Remaining bench test: interrupt a run, rerun **without reprogramming**, expect a full pass. Description below is of the original defect.
+> **STATUS: FIXED — demonstrated on hardware by controlled A/B.**
+>
+> Two bitstreams differing only in whether `RESET`/`SEL` reach `scan_core`, both given the same injected fault (`--abort-after-input`, which leaves the phase bit inverted). **Fixed build: 44/44, byte-identical to baseline. Pre-fix build: 3 failures, and it stays broken until reprogrammed.** See [RESULTS.md](RESULTS.md) §5B.
+>
+> **The defect is quieter than originally argued.** The desynced design returns a constant `0`, and only 3 of the 46 vectors expect a `1` — so **41 of 44 unmasked vectors still report `Success`**, a 93% pass rate on a completely broken harness. The visible failures are the detections, which is exactly what a DUT that never asserts its output looks like.
+>
+> Earlier detail: `BSCANE2.RESET` and `SEL` are wired into `scan_core`, which clears `io` asynchronously in Test-Logic-Reset and synchronously when the DR is deselected. Confirmed by tb_scan_core tests 2 and 3 under Vivado xsim 2020.2 — recovery works via both paths. **Also confirmed in the synthesised netlist: `io` maps to the design's only `FDCE` (flip-flop with asynchronous clear) among 23 plain `FDRE`s, so the reset path survived into hardware primitives.** Remaining bench test: interrupt a run, rerun **without reprogramming**, expect a full pass. Description below is of the original defect.
 
 `io` selects input phase vs output phase and inverts on every Update-DR. It is initialised only by its signal declaration:
 

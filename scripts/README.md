@@ -2,24 +2,39 @@
 
 | Script | Purpose | Status |
 |---|---|---|
+| `build.bat` | Wrapper: finds Vivado, then runs `build.tcl`. **Use this.** | Written, **not yet validated** |
+| `program.bat` | Wrapper: finds Vivado, then runs `program.tcl`. **Use this.** | Written, **not yet validated** |
 | `build.tcl` | Headless Vivado project creation + synth + impl + bitstream | Written, **not yet validated on hardware** |
 | `program.tcl` | Headless Hardware Manager programming, releases the cable on exit | Written, **not yet validated on hardware** |
+| `find_vivado.bat` | Locates `settings64.bat` and puts the tools on `PATH`. Shared by the wrappers and `sim/run_sim.bat`. | — |
 | `new_lab.py` | Generate a `DUT.vhd` wrapper and width constants from a DUT entity | **Working**, 19 offline tests |
 | `test_new_lab.py` | Tests for the generator. No toolchain needed. | — |
 
 ## Usage
 
 ```
-python3 scripts/new_lab.py examples/seq1011/Seq1011.vhd --patch-toplevel
+python scripts\new_lab.py examples\seq1011\Seq1011.vhd --patch-toplevel
+scripts\build.bat examples\seq1011
+scripts\program.bat
+python host\scanchain.py -t examples\seq1011\TRACEFILE.txt -o output.txt
+```
+
+Optional second argument overrides the part:
+
+```
+scripts\build.bat examples\seq1011 xc7a15tftg256-1
+```
+
+### Why the `.bat` wrappers exist
+
+`vivado` is not on `PATH` in a normal shell — it needs `settings64.bat` sourced first, which cannot be done from PowerShell at all. Rather than making every caller know where Vivado lives, `find_vivado.bat` searches the usual install roots, honours `VIVADO_SETTINGS` as an override, and fails with both fixes spelled out if it finds nothing. `build.bat`, `program.bat` and `sim/run_sim.bat` all call it, so the logic exists once.
+
+They also translate backslashes to forward slashes for Tcl, so you can pass Windows-style paths, and they print what to do next on success and the likely causes on failure.
+
+If you prefer calling Vivado directly, the underlying commands are unchanged:
+
+```
 vivado -mode batch -source scripts/build.tcl -tclargs examples/seq1011
-vivado -mode batch -source scripts/program.tcl
-python host/scanchain.py -t examples/seq1011/TRACEFILE.txt -o output.txt
-```
-
-Optional second argument to `build.tcl` overrides the part:
-
-```
-vivado -mode batch -source scripts/build.tcl -tclargs examples/seq1011 xc7a15tftg256-1
 ```
 
 ---

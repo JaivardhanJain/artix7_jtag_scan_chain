@@ -16,13 +16,18 @@ Three differences that will otherwise waste your time:
 | `fc` compares nothing useful | In PowerShell `fc` is an alias for `Format-Custom`, not the file-compare tool. Use **`fc.exe`**. |
 | `cd /d "path"` fails | `/d` is a `cmd` switch. Plain `cd "path"` works in PowerShell. |
 
-`vivado` also may not be on `PATH`, and `settings64.bat` cannot be sourced from PowerShell. Either run the `vivado` lines from a plain `cmd` window, or call the binary directly:
+**`vivado` will not be on `PATH`** in a normal shell, and `settings64.bat` cannot be sourced from PowerShell. So use the wrapper scripts instead of calling `vivado` directly — they locate the install themselves, exactly as `run_sim.bat` does:
 
 ```powershell
-& "C:\Xilinx\Vivado\2020.2\bin\vivado.bat" -mode batch -source scripts/build.tcl -tclargs examples/seq1011
+.\scripts\build.bat examples\seq1011
+.\scripts\program.bat
 ```
 
-Note the `vivado` lines use forward slashes (Tcl wants them) while Python paths use backslashes. Both are correct as written.
+Set `VIVADO_SETTINGS` if your install is somewhere unusual:
+
+```powershell
+$env:VIVADO_SETTINGS = "C:\path\to\Vivado\20XX.X\settings64.bat"
+```
 
 ---
 
@@ -32,11 +37,11 @@ Note the `vivado` lines use forward slashes (Tcl wants them) while Python paths 
 
 ```
 cd sim
-run_sim.bat
+.\run_sim.bat
 cd ..
-python3 host/test_scanchain.py
-python3 scripts/test_new_lab.py
-python3 sim/model_scan_core.py
+python host\test_scanchain.py
+python scripts\test_new_lab.py
+python sim\model_scan_core.py
 ```
 
 **Expect:** `259 checks, 0 errors` / `192 of 256` from xsim, then `22 tests, 0 failures`, `19 tests, 0 failures`, `264 checks, 0 errors`.
@@ -52,10 +57,10 @@ python3 sim/model_scan_core.py
 Uses `string_detector` because that is what `results/string_detector_output.txt` was captured from. Its detector sources are gitignored but present in your working copy.
 
 ```
-python3 scripts/new_lab.py examples/string_detector/StringDetector.vhdl --patch-toplevel
-vivado -mode batch -source scripts/build.tcl -tclargs examples/string_detector
-vivado -mode batch -source scripts/program.tcl
-python host/scanchain.py -t examples/string_detector/TRACEFILE.txt -o /tmp/parity.txt
+python scripts\new_lab.py examples\string_detector\StringDetector.vhdl --patch-toplevel
+.\scripts\build.bat examples\string_detector
+.\scripts\program.bat
+python host\scanchain.py -t examples\string_detector\TRACEFILE.txt -o parity.txt
 ```
 
 **Expect from the generator:** `7 input bits, 1 output bits`, clock at bit 0, reset at bit 1, `inp` at `[6:2]`.
@@ -72,7 +77,7 @@ IDCODE: 0x........
 Then the diff that matters:
 
 ```
-diff /tmp/parity.txt results/string_detector_output.txt
+fc.exe parity.txt results\string_detector_output.txt
 ```
 
 **Expect exactly two changed lines** — the two `mask = 0` vectors, now `Skipped` instead of `Success`:
@@ -102,20 +107,20 @@ The IDCODE also settles issue #6 — which part the board actually is. `0x0362D0
 **This is the test that fails on the original code**, and the entire justification for the `BSCANE2.RESET` fix. It has been confirmed in simulation; this is the real thing.
 
 ```
-python host/scanchain.py -t examples/string_detector/TRACEFILE.txt -o /tmp/a.txt
+python host\scanchain.py -t examples\string_detector\TRACEFILE.txt -o scratch.txt
 ```
 
 …and press **Ctrl-C while it is running**. With only 46 vectors that is hard to catch, so use a bigger target and interrupt mid-run:
 
 ```
-python host/scanchain.py -t examples/alu/TRACEFILE.txt -o /tmp/a.txt
+python host\scanchain.py -t examples\alu\TRACEFILE.txt -o scratch.txt
 ```
 
 Then — **without reprogramming the FPGA** — run the parity test again:
 
 ```
-python host/scanchain.py -t examples/string_detector/TRACEFILE.txt -o /tmp/after_interrupt.txt
-diff /tmp/after_interrupt.txt /tmp/parity.txt
+python host\scanchain.py -t examples\string_detector\TRACEFILE.txt -o after_interrupt.txt
+fc.exe after_interrupt.txt parity.txt
 ```
 
 **Expect:** identical to the step 1 output. No difference at all.
@@ -133,15 +138,15 @@ diff /tmp/after_interrupt.txt /tmp/parity.txt
 The clock was left at `0x3B` (~500 kHz) by the original author, with no recorded justification. With the TDO race fixed, the safe ceiling should be higher. This produces the project's only quantitative before/after number.
 
 ```
-python host/scanchain.py -t examples/alu/TRACEFILE.txt -o /tmp/d3B.txt -d 0x3B
-python host/scanchain.py -t examples/alu/TRACEFILE.txt -o /tmp/d1D.txt -d 0x1D
-python host/scanchain.py -t examples/alu/TRACEFILE.txt -o /tmp/d0E.txt -d 0x0E
-python host/scanchain.py -t examples/alu/TRACEFILE.txt -o /tmp/d06.txt -d 0x06
-python host/scanchain.py -t examples/alu/TRACEFILE.txt -o /tmp/d02.txt -d 0x02
-python host/scanchain.py -t examples/alu/TRACEFILE.txt -o /tmp/d00.txt -d 0x00
+python host\scanchain.py -t examples\alu\TRACEFILE.txt -o d3B.txt -d 0x3B
+python host\scanchain.py -t examples\alu\TRACEFILE.txt -o d1D.txt -d 0x1D
+python host\scanchain.py -t examples\alu\TRACEFILE.txt -o d0E.txt -d 0x0E
+python host\scanchain.py -t examples\alu\TRACEFILE.txt -o d06.txt -d 0x06
+python host\scanchain.py -t examples\alu\TRACEFILE.txt -o d02.txt -d 0x02
+python host\scanchain.py -t examples\alu\TRACEFILE.txt -o d00.txt -d 0x00
 ```
 
-You will need to run `new_lab.py --patch-toplevel` on the ALU and rebuild first — see step 4. Do step 4, then come back.
+The ALU must be built and programmed first — do step 4, then come back.
 
 `TCK = 30 MHz / (divider + 1)`:
 
@@ -169,10 +174,10 @@ You will need to run `new_lab.py --patch-toplevel` on the ALU and rebuild first 
 Proves `new_lab.py`'s output actually synthesises and works — so far it has only been checked against hand-written wrappers on paper.
 
 ```
-python3 scripts/new_lab.py examples/alu/ALU.vhd --patch-toplevel
-vivado -mode batch -source scripts/build.tcl -tclargs examples/alu
-vivado -mode batch -source scripts/program.tcl
-python host/scanchain.py -t examples/alu/TRACEFILE.txt -o /tmp/alu.txt
+python scripts\new_lab.py examples\alu\ALU.vhd --patch-toplevel
+.\scripts\build.bat examples\alu
+.\scripts\program.bat
+python host\scanchain.py -t examples\alu\TRACEFILE.txt -o alu.txt
 ```
 
 **Expect:** `8 input bits, 6 output bits`, no clock or reset detected, then
@@ -190,10 +195,10 @@ python host/scanchain.py -t examples/alu/TRACEFILE.txt -o /tmp/alu.txt
 ## Step 5 — The clocked example (10 min)
 
 ```
-python3 scripts/new_lab.py examples/seq1011/Seq1011.vhd --patch-toplevel
-vivado -mode batch -source scripts/build.tcl -tclargs examples/seq1011
-vivado -mode batch -source scripts/program.tcl
-python host/scanchain.py -t examples/seq1011/TRACEFILE.txt -o /tmp/seq.txt
+python scripts\new_lab.py examples\seq1011\Seq1011.vhd --patch-toplevel
+.\scripts\build.bat examples\seq1011
+.\scripts\program.bat
+python host\scanchain.py -t examples\seq1011\TRACEFILE.txt -o seq.txt
 ```
 
 **Expect:** `3 input bits, 1 output bits`, then `602 vectors: 600 passed, 0 failed, 2 skipped`.

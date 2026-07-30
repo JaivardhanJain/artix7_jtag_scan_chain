@@ -102,15 +102,19 @@ Hand-writing the wrapper and editing the two constants was the main friction in 
 ### 2. Build the bitstream
 
 ```
-vivado -mode batch -source scripts/build.tcl -tclargs examples/seq1011
+scripts\build.bat examples\seq1011
 ```
 
-Or open Vivado, create a project with `hdl/TopLevel.vhd` + `hdl/scan_core.vhd` + your DUT files, set `TopLevel` as top, and generate a bitstream.
+The wrapper locates Vivado itself, so no Vivado command prompt is needed. Or call the Tcl directly if you already have the tools on `PATH`:
+
+```
+vivado -mode batch -source scripts/build.tcl -tclargs examples/seq1011
+```
 
 ### 3. Program the board
 
 ```
-vivado -mode batch -source scripts/program.tcl
+scripts\program.bat
 ```
 
 ### 4. Run the test

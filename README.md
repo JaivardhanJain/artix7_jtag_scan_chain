@@ -4,7 +4,7 @@ Automated, vector-based functional testing of VHDL designs on a Xilinx Artix-7 F
 
 This is an Artix-7 port of an existing MAX 10 flow. The MAX 10 version used Altera's Virtual JTAG IP; this one uses Xilinx's `BSCANE2` primitive. See [docs/MIGRATION_MAX10_TO_ARTIX7.md](docs/MIGRATION_MAX10_TO_ARTIX7.md).
 
-> **Status: working prototype, mid-rework.** The protocol is proven — 4096/4096 vectors pass on the bundled passthrough test ([results/](results/)). Five defects have been found and fixed; **one supposed defect (#2) remains unproven in both directions** and is documented as such rather than resolved by assertion. A bitstream builds from one command, the board programs, and the original driver passes 46/46 against the current bitstream — confirming the HDL changes are sound. See [Changes to the original implementation](#changes-to-the-original-implementation) and [docs/RESULTS.md](docs/RESULTS.md), which separates what is proven from what is argued.
+> **Status: working, hardware-verified.** One command builds, one programs, one runs. The reworked harness reproduces the original's results on the board: **44/44 unmasked vectors, with exactly the two predicted differences** from the pre-change capture ([docs/RESULTS.md](docs/RESULTS.md) §5A). Five defects fixed and confirmed; **one supposed defect (#2) is documented as unproven in both directions** rather than resolved by assertion. Outstanding: the desync recovery test and the clock-rate sweep. See [Changes to the original implementation](#changes-to-the-original-implementation) and [docs/RESULTS.md](docs/RESULTS.md), which separates what is proven from what is argued.
 
 ---
 
@@ -166,8 +166,8 @@ Bit order is **MSB-first as written**, i.e. the leftmost character is `input_vec
 |---|---|---|---|
 | 1 | `io` phase bit has no reset path (`BSCANE2.RESET` left open) | A crashed script permanently desyncs host and FPGA. Every later result is wrong. | **Fixed, simulation-verified** |
 | 2 | TDO launch edge | Unclear — see below | **Unproven both ways.** Reverted to the original. The evidence once used to close it turned out to be an unrelated host bug. [Details](docs/KNOWN_ISSUES.md) |
-| 3 | Mask column parsed but never applied | Don't-care outputs are compared as hard values. | **Fixed, offline-tested** |
-| 4 | Read parser reuses widths leaked from the write loop | Ragged tracefiles mis-parse instead of erroring. | **Fixed, offline-tested** |
+| 3 | Mask column parsed but never applied | Don't-care outputs are compared as hard values. | **Fixed, hardware-confirmed** |
+| 4 | Read parser reuses widths leaked from the write loop | Ragged tracefiles mis-parse instead of erroring. | **Fixed, hardware-exercised** |
 | 5 | `StringDetector.vhd` is not in this repo | `examples/string_detector` will not elaborate as-is. | **Resolved** — recovered and verified; kept local, `seq1011` added as a publishable substitute |
 | 7 | Vestigial `state_out` constraint and a suppressed `UCIO-1` DRC | Hides genuine unconstrained-port errors in future DUTs. | **Resolved, confirmed by a clean build** |
 

@@ -83,7 +83,7 @@ IEEE 1149.1 requires TDO to change on the falling edge of TCK precisely to avoid
 
 **Severity: medium.** Produces false failures on legitimate don't-cares.
 
-> **STATUS: fixed in `host/scanchain.py`, offline-tested.** Mask applied per bit; `x`/`-` don't-cares supported and folded into the mask. Fully masked vectors now report `Skipped`. Covered by `test_mask_*` and `test_dont_care_in_expected_column`. Description below is of the original defect.
+> **STATUS: FIXED — confirmed on hardware.** Mask applied per bit; `x`/`-` don't-cares supported and folded into the mask. Fully masked vectors report `Skipped`. **Confirmed on the board 2026-07-31:** the two `mask = 0` vectors in the bundled tracefile report `Skipped`, where the original reported them `Success` — the only two lines differing from the pre-change capture, exactly as predicted in advance. Description below is of the original defect.
 
 ```python
 maskbits = lineContent[2]    # assigned, never read again
@@ -107,7 +107,7 @@ Any output bit that is legitimately unknown — a registered output during a res
 
 **Severity: medium.** Mis-parses instead of erroring.
 
-> **STATUS: fixed in `host/scanchain.py`, offline-tested.** Widths are fixed by the first vector, validated on every line with the offending line number in the error, and passed explicitly into the decoder. Covered by `test_rejects_ragged_*` and `test_decode_consumes_exactly_the_read_bytes`. Description below is of the original defect.
+> **STATUS: FIXED — offline-tested, hardware-exercised.** Widths are fixed by the first vector, validated on every line with the offending line number, and passed explicitly into the decoder. Covered by `test_rejects_ragged_*` and `test_decode_consumes_exactly_the_read_bytes`, and exercised end to end by the passing 46-vector run. Description below is of the original defect.
 
 The response-decoding loop reads `outputLen`, `no_of_bytes` and `no_of_bits`, none of which it computes — they hold whatever the final iteration of the *write* loop left behind. This is correct only while every vector in the file has identical input and output widths.
 
@@ -145,6 +145,8 @@ No such file exists anywhere in the project. `examples/alu/ALU.vhd` is an unrela
 - Two parallel projects existed for different parts: `Artix7test` (**xc7a35tftg256**) and `Artix7test_2020` (**xc7a15tftg256**). Unclear which matches the physical board.
 - Both are now under the untracked `vivado/` directory. The fix is to stop committing project state entirely and generate it from `scripts/build.tcl`.
 
+> **STATUS: RESOLVED.** Project state is no longer committed; `scripts/build.tcl` generates it and verifies the source count after adding. **The part question is settled: the board is an `xc7a35t`** — Vivado enumerates it as `xc7a35t_0` and the TAP reports IDCODE `0x0362D093`, agreeing with `build.tcl`'s default.
+
 ---
 
 ## 7. Vestigial constraints file
@@ -170,7 +172,7 @@ Both are dead. `state_out` was a debug port that is now commented out in `TopLev
 
 **Severity: low each, but they add up.**
 
-> **STATUS: fixed in `host/scanchain.py`.** argparse CLI; actionable FTDI-open and IDCODE-mismatch errors; `MAX_WRITE_CHUNK` named; pass/fail/throughput summary; non-zero exit on failure; dead imports and the stale MAX 10 comment removed. Table below describes the original.
+> **STATUS: FIXED — hardware-exercised.** argparse CLI; actionable FTDI-open and IDCODE-mismatch errors; `MAX_WRITE_CHUNK` named; pass/fail/throughput summary; non-zero exit on failure; dead imports and the stale MAX 10 comment removed. The IDCODE is now decoded and the part named (`0x0362D093 (xc7a35t)`), which also settles #6. Table below describes the original.
 
 | Item | Detail |
 |---|---|

@@ -215,6 +215,57 @@ Those two lines are the visible confirmation that #3 is fixed. **Any other diffe
 
 ---
 
+## 5A. FIRST PASSING HARDWARE RUN — parity confirmed
+
+**Tier: hardware.** 2026-07-31, xc7a35t, divider `0x3B` (~500 kHz).
+
+```
+IDCODE: 0x0362D093  (xc7a35t)
+46 vectors: 44 passed, 0 failed, 2 skipped (masked)
+0.01 s elapsed, 4521 vectors/s
+```
+
+`fc.exe parity.txt results\string_detector_output.txt`:
+
+```
+***** parity.txt                    ***** RESULTS\STRING_DETECTOR_OUTPUT.TXT
+0000010 0 Skipped                   0000010 0 Success
+0000011 0 Skipped                   0000011 0 Success
+0001000 0 Success                   0001000 0 Success
+*****
+```
+
+**Exactly two differing lines, and they are the two predicted ones.**
+
+### 5A.1 What this establishes
+
+| Claim | Was | Now |
+|---|---|---|
+| The `scan_core` split preserves behaviour | simulation | **hardware** — same tracefile, same results as the pre-change capture |
+| `scanchain.py` works against a real board | untested | **hardware** — 44/44 unmasked vectors |
+| Issue #3 (mask ignored) is fixed | offline tests | **hardware** — the two `mask = 0` vectors report `Skipped`; the original reported them `Success` |
+| Issues #4, #8 (widths, ergonomics) | offline tests | **hardware-exercised** end to end |
+| `build.tcl` / `program.bat` produce a working bitstream | untested | **hardware** |
+| The recovered `StringDetector` sources are correct | model | **hardware** — they produce the original's outputs on silicon |
+
+The prediction is the part worth keeping. It was written into `RESULTS.md` and `host/README.md` **before** the run: *"this predicts exactly two changed lines — the two `mask = 0` vectors at lines 1–2."* A falsifiable claim, stated in advance, that came out exactly right. Zero differing lines would have meant the mask fix silently did nothing; any third difference would have meant a regression.
+
+### 5A.2 Throughput baseline
+
+4521 vectors/s at divider `0x3B`, for a 7-in / 1-out vector. Recorded as the *before* figure for the divider sweep. Note this is dominated by USB round-trip overhead at 46 vectors, not by TCK — the 4096-vector runs are the meaningful throughput measurement.
+
+### 5A.3 What it took to get here
+
+Three bugs, all mine, all at the hardware boundary that offline tests structurally could not reach:
+
+1. `encode_ir` returned a `bytearray`; `ftd2xx` rejects it with an opaque `ctypes` error.
+2. The IDCODE decode applied one of the two required reversals, giving a plausible wrong number.
+3. `encode_ir` sent **TMS=0 instead of TMS=1** leaving Shift-IR, so USER1 was never selected and TDO read `1` on every vector.
+
+The third produced two confident and wrong diagnoses before a bisection against the untouched original driver located it. See engineering log entries 012 and 013.
+
+---
+
 ## 6. Outstanding — hardware
 
 Simulation and synthesis are complete. Everything remaining needs the board.
@@ -223,9 +274,10 @@ Simulation and synthesis are complete. Everything remaining needs the board.
 
 | Check | Expected | Proves |
 |---|---|---|
-| ~~`scripts/build.tcl` produces a bitstream~~ | ~~clean, no `UCIO-1`~~ | **Done — see section 4** |
+| ~~`scripts/build.tcl` produces a bitstream~~ | ~~clean, no `UCIO-1`~~ | **Done — section 4** |
+| ~~46-vector parity run~~ | ~~2 lines differ~~ | **Done — section 5A. Exactly 2, as predicted** |
 | `scripts/program.tcl` programs and releases the cable | device programmed | Same |
-| 46-vector run vs `results/string_detector_output.txt` | identical **except lines 1–2**, which become `Skipped` (see 5.2) | No behavioural drift from the `scan_core` split or the TDO edge move, and confirmation the mask fix took effect |
+| ~~46-vector run vs `results/string_detector_output.txt`~~ | ~~identical except lines 1–2~~ | **Done — section 5A** |
 | Interrupt mid-run, rerun **without reprogramming** | full pass | Issue #1. **Fails on the original code** — this is the fix's entire justification |
 | Divider sweep down from `0x3B`, before vs after the TDO fix | safe ceiling rises | Issue #2, and yields the one measurable throughput figure in the project |
 
@@ -248,7 +300,9 @@ Simulation and synthesis are complete. Everything remaining needs the board.
 | Issue #7 (vestigial constraints) is resolved | **Toolchain** — no `UCIO-1` with the DRC no longer suppressed |
 | The `io` async reset survives into the netlist | **Toolchain** — a single `FDCE` among 23 `FDRE`s |
 | `new_lab.py`'s generated wrapper synthesises | **Toolchain** — bound and elaborated cleanly |
-| The `scan_core` split preserves behaviour | **Simulation** — exhaustive over 256 vectors. Hardware parity run outstanding |
+| The `scan_core` split preserves behaviour | **Hardware** — 46-vector parity run, exactly the 2 predicted differences |
+| `scanchain.py` works on real hardware | **Hardware** — 44/44 unmasked |
+| Issue #3 (mask) is fixed | **Hardware** — masked vectors report `Skipped` |
 | Issue #1 (desync) was a real defect | **Model** — reproduced against the pre-fix design |
 | Issue #1 is fixed | **Simulation** — recovery via both TAP reset and deselect. Hardware interrupt test outstanding |
 | Issue #2 (TDO edge) is fixed | **Simulation** — no off-by-one. Real timing margin unmeasured |
@@ -257,4 +311,4 @@ Simulation and synthesis are complete. Everything remaining needs the board.
 | Throughput improved | **No evidence.** Divider sweep not yet run |
 | Issues #5, #6, #7 | Open, unaddressed |
 
-The honest one-line status: *the protocol was already proven on hardware by its original author; six defects have been found and fixed — two in HDL confirmed in simulation and now in synthesis, three in the host confirmed by offline tests, and one constraints defect confirmed resolved by a clean DRC. A bitstream now builds from a single command. Nothing has yet been programmed or rerun on the board.*
+The honest one-line status: *the protocol was proven on hardware by its original author, and the reworked version now reproduces that result on the same board — one command to build, one to program, one to run. Five defects fixed and confirmed; one (#2) withdrawn as unproven in both directions; the desync fix and the throughput sweep remain the outstanding hardware work.*

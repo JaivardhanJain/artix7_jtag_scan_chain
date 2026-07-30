@@ -2,9 +2,9 @@
 
 | File | Status |
 |---|---|
-| `scanchain.py` | Current driver. Offline-tested, **not yet run against hardware**. |
-| `scan_bscane2.py` | The original. Kept unchanged as the reference until `scanchain.py` has a passing hardware run. |
-| `test_scanchain.py` | 28 offline tests. No board required. |
+| `scanchain.py` | Current driver. **Hardware-validated** — 44/44 unmasked vectors, parity with the pre-change capture. |
+| `scan_bscane2.py` | The original, unchanged. Kept as the reference — it is what located the IR bug by bisection. |
+| `test_scanchain.py` | 30 offline tests. No board required. |
 
 ```
 python host/scanchain.py -t examples/string_detector/TRACEFILE.txt -o output.txt
@@ -67,9 +67,9 @@ Everything above `class JtagDevice` is pure — no hardware, no I/O. That split 
 - **IDCODE decoding** — pinned to bytes captured from a real board, whose part is known independently. See below.
 - **Write types** — the encoders must return `bytes`; `ftd2xx` rejects a `bytearray` with an unhelpful `ctypes.ArgumentError`.
 
-## Two bugs the first hardware run found
+## Three bugs the hardware runs found
 
-Both were in code paths that offline tests had never covered, which is exactly where they would be.
+All three were in code paths the offline tests structurally could not reach — the boundary with the FTDI device. The third took two wrong diagnoses to find.
 
 **`encode_ir` returned a `bytearray`.** `ftd2xx.write()` accepts `bytes` only and rejects anything else with a bare `ctypes.ArgumentError: argument 2: wrong type` — no mention of the type it wanted, or which call. Now returns `bytes`, with a test asserting it.
 
@@ -85,5 +85,11 @@ Doing only the second returned `0xC0460BC9` for a part whose IDCODE is `0x0362D0
 ```
 IDCODE: 0x0362D093  (xc7a35t)
 ```
+
+**`encode_ir` sent TMS=0 instead of TMS=1 leaving Shift-IR.** The payload byte of a `0x4B` command is not a data value — bits 6..0 are TMS levels, bit 7 is TDI. I read it as a value, so for USER1 (`0x02`, top bit 0) it emitted `0x00`: TMS=0. The TAP stayed in Shift-IR, the instruction never latched, USER1 was never selected, and TDO read `1` on every vector.
+
+Two things made this hard. The IDCODE read kept working, because it runs before `select_user1` and never touched the broken byte — so the board looked alive. And I had written the same misunderstanding into a test, asserting `out[8] == 0`; **a test written from the same wrong model as the code confirms the model, not the code.**
+
+It was found by bisection: running the untouched `scan_bscane2.py` against the same bitstream. It passed 46/46, which located the bug in the host in one command. `encode_ir` is now pinned to the original's literal bytes, the way the other encoders always were.
 
 What these tests do **not** cover: anything involving the FTDI device, the USB batching path, or whether the FPGA responds correctly. Those need hardware.

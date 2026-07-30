@@ -755,3 +755,75 @@ One command. It was possible only because `scan_bscane2.py` was kept unmodified 
 | `scanchain.py` IR bug | **Fixed**, pinned to the original's bytes, 30 tests passing |
 | D2 (TDO launch edge) | **Unproven both ways.** Reverted; testable in one cycle |
 | Parity run with the fixed host | **Not yet run** |
+
+---
+
+## Entry 014 — 2026-07-31 — Parity run passes. The rework is hardware-verified.
+
+```
+IDCODE: 0x0362D093  (xc7a35t)
+46 vectors: 44 passed, 0 failed, 2 skipped (masked)
+0.01 s elapsed, 4521 vectors/s
+```
+
+Diff against the capture taken before any of this work:
+
+```
+***** parity.txt              ***** RESULTS\STRING_DETECTOR_OUTPUT.TXT
+0000010 0 Skipped             0000010 0 Success
+0000011 0 Skipped             0000011 0 Success
+0001000 0 Success             0001000 0 Success
+*****
+```
+
+**Exactly two differing lines, and they are the two that were predicted.**
+
+### 14.1 The prediction is the result
+
+The interesting artefact here is not the pass. It is that the exact shape of the diff was written down in `RESULTS.md` and `host/README.md` *before* the run:
+
+> *"this predicts exactly two changed lines — the two `mask = 0` vectors at lines 1–2. Those two lines are the visible confirmation that #3 is fixed. Any other difference is a regression."*
+
+Three outcomes were enumerated in advance, each with a meaning: two lines (correct), zero lines (mask fix silently ineffective), any third line (regression). The run produced the first. That is a falsifiable prediction confirmed, not a test that was declared to pass after the fact.
+
+It also means the two lines carry real information. They are the only direct evidence that D3 changed behaviour on silicon, and they could not have been produced by anything else.
+
+### 14.2 What moves to hardware tier
+
+| Claim | Was | Now |
+|---|---|---|
+| The `scan_core` split preserves behaviour | simulation | **hardware** |
+| `scanchain.py` works against a real board | untested | **hardware**, 44/44 unmasked |
+| D3 (mask ignored) fixed | offline tests | **hardware** — the two `Skipped` lines |
+| D4, D8 | offline tests | **hardware-exercised** end to end |
+| `build.tcl` + `program.bat` produce a working bitstream | untested | **hardware** |
+| Recovered `StringDetector` sources are the right ones | model | **hardware** — they reproduce the original's outputs on silicon |
+| D6 — which part the board is | undocumented | **settled**: `xc7a35t`, agreed by Vivado's enumeration and the TAP's IDCODE |
+
+### 14.3 The cost, honestly
+
+Getting from "code complete" to this took three of my own bugs, all at the FTDI boundary — the one place the offline tests structurally could not reach:
+
+1. `encode_ir` returned `bytearray`; `ftd2xx` rejects it with an opaque `ctypes` error.
+2. IDCODE decode applied one of two required reversals — a plausible wrong number, worse than an obvious one.
+3. `encode_ir` sent TMS=0 instead of TMS=1 leaving Shift-IR.
+
+The third cost the most: two confident, internally consistent, entirely wrong diagnoses (entries 012 and 013), including reverting a change and writing a detailed explanation of why it had broken the board. It had not.
+
+What actually found it was running the untouched original driver against the same bitstream — one command, and it eliminated half the search space regardless of which way it came out. That option existed only because `scan_bscane2.py` was deliberately preserved unmodified at the start of the rewrite. Of every decision in this project, that one paid back the most.
+
+### 14.4 The pattern worth carrying forward
+
+The tests that held were the ones comparing against an **independent artefact** — the original source — across the full input space. The test that failed me was one I hand-wrote from my own understanding: `test_encode_ir_shape`, asserting `out[8] == 0`, encoding the exact misconception that caused the bug. It passed, and it was wrong.
+
+A test written from the same model as the code under test can only confirm the model. That is why `encode_ir` is now pinned to the original's literal bytes, the way the other encoders always were — and why the equivalence suite, not the hand-written assertions, is the part of this project I would trust in someone else's hands.
+
+### 14.5 Remaining
+
+| | |
+|---|---|
+| Interrupt mid-run, rerun without reprogramming (D1) | **Outstanding** — the test that fails on the original code |
+| Divider sweep, before/after throughput | **Outstanding** |
+| ALU 256-vector exhaustive, generated wrapper end to end | **Outstanding** |
+| seq1011 602-vector run | **Outstanding** |
+| D2 — settle it by rebuilding with the falling-edge register | **Optional**, one cycle |

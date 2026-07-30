@@ -6,6 +6,24 @@ Work through it in order — later steps assume earlier ones passed. Record the 
 
 **Before you start:** all commands are run from the repository root unless stated. Vivado 2020.2 on `PATH` (or use `sim/run_sim.bat`, which finds it itself).
 
+### If you are in PowerShell
+
+Three differences that will otherwise waste your time:
+
+| Trap | Fix |
+|---|---|
+| `run_sim.bat` → *"not recognized as the name of a cmdlet"* | PowerShell does not run scripts from the current directory. Use `.\run_sim.bat`. |
+| `fc` compares nothing useful | In PowerShell `fc` is an alias for `Format-Custom`, not the file-compare tool. Use **`fc.exe`**. |
+| `cd /d "path"` fails | `/d` is a `cmd` switch. Plain `cd "path"` works in PowerShell. |
+
+`vivado` also may not be on `PATH`, and `settings64.bat` cannot be sourced from PowerShell. Either run the `vivado` lines from a plain `cmd` window, or call the binary directly:
+
+```powershell
+& "C:\Xilinx\Vivado\2020.2\bin\vivado.bat" -mode batch -source scripts/build.tcl -tclargs examples/seq1011
+```
+
+Note the `vivado` lines use forward slashes (Tcl wants them) while Python paths use backslashes. Both are correct as written.
+
 ---
 
 ## Step 0 — Re-run the simulation (2 min, no board)

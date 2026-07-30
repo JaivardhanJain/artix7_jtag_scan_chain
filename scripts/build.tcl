@@ -55,14 +55,46 @@ foreach f $dut_sources { puts "=== added   : [file tail $f]" }
 # --- Constraints ---------------------------------------------------------
 # TopLevel has no ports, so the XDC is expected to be empty. Added only so
 # Vivado has a constraints fileset.
+#
+# NOTE the [list ...] wrapper. Vivado's add_files list-parses its file
+# argument, so a bare string containing spaces -- e.g. a repository under
+# "Wadhwani Lab Research" -- is split into several nonexistent filenames and
+# fails with "File or Directory 'Lab' does not exist". Wrapping in a
+# single-element list is what makes paths with spaces work. Every add_files
+# call in this file does it for the same reason.
 set xdc [file join $repo_root hdl constraints.xdc]
 if {[file exists $xdc]} {
-    add_files -fileset constrs_1 -norecurse $xdc
+    add_files -fileset constrs_1 -norecurse [list $xdc]
 }
 
 set_property target_language VHDL [current_project]
 set_property top TopLevel [current_fileset]
 update_compile_order -fileset sources_1
+
+# --- Verify what actually landed in the project ---------------------------
+# The original .xpr had drifted out of sync with the source tree -- TopLevel.vhd
+# was not even listed (KNOWN_ISSUES #6). Checking here means a file silently
+# failing to be added shows up now, with a useful message, rather than as an
+# unbound-entity error several minutes into synthesis.
+set expected [expr {2 + [llength $dut_sources]}]
+set actual [llength [get_files -of_objects [get_filesets sources_1]]]
+if {$actual != $expected} {
+    puts "ERROR: expected $expected source files in the project, found $actual."
+    puts "       In the project:"
+    foreach f [get_files -of_objects [get_filesets sources_1]] {
+        puts "         $f"
+    }
+    puts "       A path containing spaces is the usual cause -- Vivado's"
+    puts "       add_files list-parses its argument. Every call here wraps the"
+    puts "       path in \[list ...\]; if you added one, do the same."
+    exit 1
+}
+puts "=== sources  : $actual files in the project, as expected"
+
+if {[llength [get_files -of_objects [get_filesets constrs_1]]] == 0} {
+    puts "WARNING: no constraints file in the project. Harmless for this design"
+    puts "         (TopLevel has no ports) but unexpected."
+}
 
 # --- Build ---------------------------------------------------------------
 launch_runs synth_1 -jobs 4

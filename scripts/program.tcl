@@ -40,6 +40,19 @@ puts "=== idcode: [get_property REGISTER.IDCODE.BIT_STREAM $dev]"
 current_hw_device $dev
 refresh_hw_device -update_hw_probes false $dev
 set_property PROGRAM.FILE $bitfile $dev
+
+# Read it back. A path containing spaces is the recurring hazard in this flow
+# (see the note in build.tcl), and programming the wrong file -- or a truncated
+# path -- would otherwise be discovered as mysterious vector failures later.
+set assigned [get_property PROGRAM.FILE $dev]
+if {$assigned ne $bitfile} {
+    puts "ERROR: PROGRAM.FILE did not take the value given."
+    puts "       wanted: $bitfile"
+    puts "       got   : $assigned"
+    close_hw_target
+    exit 1
+}
+
 program_hw_devices $dev
 refresh_hw_device $dev
 

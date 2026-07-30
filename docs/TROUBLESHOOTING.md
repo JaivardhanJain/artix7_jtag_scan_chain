@@ -71,6 +71,25 @@ invalid command name "%"
 
 Cloning the repo to a path without spaces makes it go away.
 
+## Vivado build: `File or Directory 'Lab' does not exist`
+
+```
+ERROR: [Vivado 12-172] File or Directory 'Lab' does not exist
+```
+
+Vivado's `add_files` **list-parses** its file argument, so a path containing spaces — such as a repository under `Wadhwani Lab Research` — is split into several nonexistent filenames. The fragment in the error message is the word after the first space.
+
+The fix is to wrap the path in a single-element list:
+
+```tcl
+add_files -norecurse [list $path]      # correct
+add_files -norecurse $path             # splits on spaces
+```
+
+Every `add_files` call in `scripts/build.tcl` does this. If you add one, do the same. `build.tcl` also verifies the project's source count after adding and fails with a file list if it does not match, so a silently-dropped file surfaces immediately rather than as an unbound-entity error minutes into synthesis.
+
+Cloning to a path without spaces avoids this whole class of problem, and also silences the cosmetic Webtalk error below.
+
 ## Vivado: `Entity StringDetector is not bound`
 
 `StringDetector.vhd` is not in this repository (Known Issues #5). Supply it, or use a different example.

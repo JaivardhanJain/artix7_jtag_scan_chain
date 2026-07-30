@@ -64,7 +64,7 @@ CMD_READ_BYTES_PE = 0x20      # read bytes, +ve edge -- used for IDCODE
 IR_USER1 = 0x02
 IR_IDCODE = 0x09
 
-DEFAULT_DIVIDER = 0x3B        # 30 MHz / (0x3B + 1) ~= 500 kHz
+DEFAULT_DIVIDER = 0x3B        # 6 MHz / (0x3B + 1) = 100 kHz -- see __init__
 
 DONT_CARE_CHARS = "xX-"
 
@@ -456,7 +456,17 @@ class JtagDevice:
             ) from exc
 
         self.dev.setBitMode(0, 0x02)                  # MPSSE
-        self.dev.write(b"\x8B")                       # disable /5 prescaler
+        # 0x8B ENABLES the divide-by-5 prescaler (0x8A disables it). Inherited
+        # from scan_bscane2.py, where it was commented as a disable -- it is
+        # not. With /5 on, the MPSSE master is 60/5 = 12 MHz and
+        #     TCK = 12 MHz / (2 * (divider + 1)) = 6 MHz / (divider + 1)
+        # so every frequency this project ever quoted was 5x too high. See
+        # docs/RESULTS.md 5C: the divider sweep's timing fits 6 MHz/(n+1) to
+        # within a few microseconds per vector and does not fit 30 MHz/(n+1).
+        # Left as-is deliberately: every hardware result on record was taken
+        # with the prescaler on, and switching it is a change to test, not to
+        # slip in. See docs/KNOWN_ISSUES.md #2.
+        self.dev.write(b"\x8B")                       # ENABLE /5 prescaler
         self.dev.write(bytes([0x86, divider & 0xFF, (divider >> 8) & 0xFF]))
         self.dev.write(b"\x80\x00\x0B")               # initial JTAG pin state
 
@@ -635,8 +645,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="FTDI channel: 0 = A, 1 = B (default: 0)")
     ap.add_argument("-d", "--divider", type=lambda s: int(s, 0),
                     default=DEFAULT_DIVIDER,
-                    help=f"clock divider; TCK = 30 MHz / (n+1) "
-                         f"(default: 0x{DEFAULT_DIVIDER:02X} ~= 500 kHz)")
+                    help=f"clock divider; TCK = 6 MHz / (n+1) "
+                         f"(default: 0x{DEFAULT_DIVIDER:02X} = 100 kHz). "
+                         f"0x02 (2 MHz) is ~15x faster and has passed on "
+                         f"hardware; see docs/RESULTS.md 5C")
     ap.add_argument("--expect-idcode", type=lambda s: int(s, 0), default=None,
                     help="abort unless the TAP reports this IDCODE, e.g. 0x0362D093")
     ap.add_argument("--dry-run", action="store_true",

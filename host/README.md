@@ -19,7 +19,7 @@ python3 host/test_scanchain.py
 | `-t, --tracefile` | Test vectors. Required. |
 | `-o, --out` | Per-vector report (default `output.txt`). |
 | `-c, --channel` | FTDI channel, 0 = A, 1 = B. |
-| `-d, --divider` | Clock divider; TCK = 30 MHz / (n+1). Default `0x3B` ≈ 500 kHz. This is the knob for the divider sweep. |
+| `-d, --divider` | Clock divider; TCK = 6 MHz / (n+1). Default `0x3B` = 100 kHz. `0x02` (2 MHz) is ~15x faster and passed 3/3 on hardware — see RESULTS.md §5C. |
 | `--expect-idcode` | Abort unless the TAP reports this IDCODE. |
 | `--dry-run` | Parse and validate the tracefile, then exit. No hardware. |
 

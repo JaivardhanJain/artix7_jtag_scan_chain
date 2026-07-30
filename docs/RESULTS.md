@@ -25,7 +25,7 @@ Measured outcomes, separated by how strong the evidence is. Anything not measure
 
 This is the number that matters most in the whole project, and it belongs to the original implementation: **the protocol works, at scale, on real hardware.** Everything since is robustness and usability work on top of a design that was already functionally correct.
 
-**What the baseline does not establish.** Every one of these runs completed without interruption, at a clock divider of `0x3B` (~500 kHz). Neither the desync failure mode nor the TDO edge race can appear under those conditions, so a clean sweep here is consistent with both defects being present. It was.
+**What the baseline does not establish.** Every one of these runs completed without interruption, at a clock divider of `0x3B` (100 kHz). Neither the desync failure mode nor the TDO edge race can appear under those conditions, so a clean sweep here is consistent with both defects being present. It was.
 
 ---
 
@@ -217,7 +217,7 @@ Those two lines are the visible confirmation that #3 is fixed. **Any other diffe
 
 ## 5A. FIRST PASSING HARDWARE RUN — parity confirmed
 
-**Tier: hardware.** 2026-07-31, xc7a35t, divider `0x3B` (~500 kHz).
+**Tier: hardware.** 2026-07-31, xc7a35t, divider `0x3B` (100 kHz).
 
 ```
 IDCODE: 0x0362D093  (xc7a35t)
@@ -321,6 +321,110 @@ Worth recording together, because "TDO is constant" was ambiguous between a host
 
 ---
 
+## 5C. THE DIVIDER SWEEP — 17x throughput, and a five-fold error in every frequency this project ever quoted
+
+**Tier: hardware.** 2026-07-31, `examples/alu` (256 vectors, exhaustive, 8 in / 6 out), 3 repeats per divider.
+
+The gating run first — the ALU example, whose wrapper `new_lab.py` generated and whose tracefile came from a golden model:
+
+```
+examples\alu\TRACEFILE.txt: 256 vectors, 8 in / 6 out
+IDCODE: 0x0362D093  (xc7a35t)
+256 vectors: 256 passed, 0 failed, 0 skipped (masked)
+```
+
+**256/256, exhaustive over the entire input space.** This is the first hardware validation of a machine-generated wrapper: it confirms `new_lab.py`'s bit layout is right on silicon, not merely consistent with the two hand-written wrappers it was checked against, and it exercises `build.tcl` on a second design with different widths.
+
+### 5C.1 The sweep
+
+```
+ divider        TCK              result             vectors/s
+----------------------------------------------------------------
+    0x3b    100 kHz            PASS 3/3             3892-4062
+    0x1d    200 kHz            PASS 3/3             7394-8491
+     0xe    400 kHz            PASS 3/3           11329-14069
+     0x6    857 kHz            PASS 3/3           22588-30099
+     0x2   2.00 MHz            PASS 3/3           30844-63299
+     0x1   3.00 MHz            PASS 3/3           26848-65729
+     0x0   6.00 MHz            PASS 3/3           58134-70276
+```
+
+(The TCK column is the corrected one — see 5C.3. The script printed 500 kHz … 30 MHz on the day.)
+
+**Every divider passed every repeat, up to the fastest the FTDI can produce with its current configuration. 4062 → 70276 vectors/s, a 17.3x speed-up.**
+
+No `INTERMITTENT` row appeared, which is the one outcome that would have located the timing margin. The sweep is **censored at the top**: it establishes that the design works at 6 MHz, not where it stops working.
+
+### 5C.2 The prediction was wrong, and the way it was wrong is the finding
+
+Written down before the sweep ran:
+
+> *"I expect little or no throughput gain. At 0.07 s for 256 vectors, that's ~270 µs per vector, while the actual JTAG traffic at 500 kHz is only ~30 µs. So roughly 90% of the time is USB round-trip and Python overhead, not TCK."*
+
+17.3x is not "little or no gain". But the ~30 µs estimate of JTAG traffic was close to right — counted properly from the encoders, an 8-in/6-out vector is **24 TCK cycles** (13 input phase, 11 output phase). The error was in the other term: at a *real* 100 kHz rather than the assumed 500 kHz, those 24 cycles take 240 µs, not 48 µs. They were never the small term. **The prediction failed because the clock was 5x slower than the number in the source comment.**
+
+### 5C.3 The driver enables the /5 prescaler while claiming to disable it
+
+`host/scanchain.py`, inherited verbatim from `scan_bscane2.py`:
+
+```python
+self.dev.write(b"\x8B")        # disable /5 prescaler   <-- WRONG COMMENT
+```
+
+MPSSE `0x8A` disables the divide-by-5 prescaler; **`0x8B` enables it.** With it enabled the master clock is 60/5 = 12 MHz and
+
+```
+TCK = 12 MHz / (2 * (divider + 1)) = 6 MHz / (divider + 1)
+```
+
+not the `30 MHz / (n+1)` asserted in the code, in `KNOWN_ISSUES.md`, and in the first version of `sweep_divider.py`. So `0x3B` is **100 kHz, not 500 kHz**, and the maximum available is **6 MHz, not 30 MHz**.
+
+### 5C.4 The sweep measures its own base clock, independently of any datasheet
+
+This does not rest on remembering which opcode is which. Model each vector as a fixed TCK cost plus a fixed host cost:
+
+```
+t_vector = 24 / f_tck  +  a
+```
+
+24 is counted from `encode_input_scan(8)` and `encode_output_scan(6)`, not fitted. Solving for `a` at each divider, using the best of the three repeats:
+
+| divider | TCK @ 6 MHz base | µs/vector observed | TCK part | residual `a` |
+|---|---|---|---|---|
+| `0x3B` | 100 kHz | 246.2 | 240.0 | 6.2 |
+| `0x1D` | 200 kHz | 117.8 | 120.0 | −2.2 |
+| `0x0E` | 400 kHz | 71.1 | 60.0 | 11.1 |
+| `0x06` | 857 kHz | 33.2 | 28.0 | 5.2 |
+| `0x02` | 2.00 MHz | 15.8 | 12.0 | 3.8 |
+| `0x01` | 3.00 MHz | 15.2 | 8.0 | 7.2 |
+| `0x00` | 6.00 MHz | 14.2 | 4.0 | 10.2 |
+
+**Mean residual 5.9 µs/vector, and it is flat across a 60x range of clock rates** — which is what a constant host cost should look like. Under the 30 MHz assumption the TCK part at `0x3B` would be 48 µs, leaving ~198 µs of "host cost" at the slow end against ~13 µs at the fast end: a residual that tracks the clock, which is not a constant and not an explanation.
+
+The sweep therefore contains the evidence that the sweep's own frequency labels were wrong. That is worth more than the throughput number.
+
+### 5C.5 Where the knee is, and what to set the default to
+
+TCK cost equals host cost at 24/f = 5.9 µs, i.e. **f ≈ 4 MHz**. Above that, throughput saturates — visible in the table as `0x02` → `0x00` tripling the clock for 11% more vectors/s.
+
+| Divider | True TCK | vs `0x3B` | Note |
+|---|---|---|---|
+| `0x3B` | 100 kHz | 1.0x | Inherited. Now known to be ~60x slower than necessary |
+| `0x02` | 2.00 MHz | **15.6x** | Captures 90% of the available gain at a third of the clock rate |
+| `0x00` | 6.00 MHz | 17.3x | Fastest available; no margin left below it to fall back on |
+
+**`0x02` is the defensible default** — three divider steps below the fastest that passed, and it gives up 11% of a 17x improvement to buy that margin. The default is left at `0x3B` in this commit: three passes is not a basis for changing the setting every hardware result on record was taken at. `--divider 0x02` is documented, and the help text now points at it.
+
+### 5C.6 What this says about issue #2, and the 5x still on the table
+
+The TDO path is combinational and sampled on the rising edge — the entire subject of issue #2. It now has a **measured bound**: correct on 3×256 vectors at a 167 ns clock period, so the launch-to-sample path settles in well under half of that. That is real evidence where previously there was none, since Vivado never timed this design at all (§4.2).
+
+It is also a much weaker bound than it looked like an hour ago. "Works at 30 MHz" would have effectively closed issue #2. **"Works at 6 MHz" does not** — it is roughly the frequency the original 1149.1 argument would predict is safe anyway.
+
+And the experiment that would settle it is now obvious: **send `0x8A` instead of `0x8B`.** That unlocks 30 MHz, five times faster than anything tested here, and issue #2 predicts the combinational TDO path is exactly what fails first. A sweep that finds the edge would settle the question that two wrong diagnoses and one simulation could not. Untested — the prescaler is left enabled deliberately, because every result in this document was taken with it on.
+
+---
+
 ## 6. Outstanding — hardware
 
 Simulation and synthesis are complete. Everything remaining needs the board.
@@ -334,7 +438,10 @@ Simulation and synthesis are complete. Everything remaining needs the board.
 | `scripts/program.tcl` programs and releases the cable | device programmed | Same |
 | ~~46-vector run vs `results/string_detector_output.txt`~~ | ~~identical except lines 1–2~~ | **Done — section 5A** |
 | ~~Interrupt mid-run, rerun without reprogramming~~ | ~~full pass~~ | **Done — section 5B, with the pre-fix A/B** |
-| Divider sweep down from `0x3B`, before vs after the TDO fix | safe ceiling rises | Issue #2, and yields the one measurable throughput figure in the project |
+| ~~Divider sweep down from `0x3B`~~ | ~~safe ceiling rises~~ | **Done — section 5C. 17.3x, no failure found; ceiling not located** |
+| ~~ALU 256-vector exhaustive, generated wrapper~~ | ~~256/256~~ | **Done — section 5C** |
+| Re-sweep with `0x8A` (prescaler off), reaching 30 MHz | a divider that fails | Would locate the real timing ceiling and settle issue #2 |
+| `seq1011` 602-vector run | 602/602 | The clocked-FSM path end to end on a design written for this repo |
 
 ### 6.2 Deliberately out of scope for simulation
 
@@ -361,7 +468,10 @@ Simulation and synthesis are complete. Everything remaining needs the board.
 | Issue #1 (desync) was a real defect | **Hardware** — pre-fix build fails the injected fault, 3/44 |
 | Issue #1 is fixed | **Hardware** — fixed build recovers byte-identically; controlled A/B, one variable |
 | Issue #1 fails *silently* | **Hardware** — 93% of vectors still report Success while the harness returns a constant |
-| Issue #2 (TDO edge) is fixed | **Simulation** — no off-by-one. Real timing margin unmeasured |
+| `new_lab.py`'s generated wrapper is correct on silicon | **Hardware** — ALU, 256/256 exhaustive |
+| Issue #2 (TDO edge) is fixed | **Simulation** — no off-by-one. Hardware bounds the margin only to 6 MHz, which does not discriminate |
+| Throughput can be raised well above the inherited setting | **Hardware** — 17.3x, 3/3 at every divider tested |
+| Every TCK frequency previously quoted in this project | **Wrong by 5x** — the /5 prescaler is enabled, not disabled; see 5C.3–5C.4 |
 | The host rewrite preserves the wire protocol | **Model** — byte-for-byte equivalence, widths 1–64 |
 | Issues #3, #4, #8 are fixed | **Model** — 22 offline tests. No hardware run |
 | Throughput improved | **No evidence.** Divider sweep not yet run |

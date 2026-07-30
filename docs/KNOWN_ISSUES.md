@@ -61,10 +61,16 @@ Then have the host issue a TAP reset at the start of every run — it already do
 > **This is now cheaply testable.** With the host fixed, reinstating the falling-edge register, rebuilding and rerunning would settle it in one cycle. Until someone does, treat the original 1149.1 analysis below as an open question rather than either a defect or a debunked one.
 >
 > **What simulation genuinely cannot tell you here.** `tb_scan_core` and `model_scan_core.py` both stand in for `BSCANE2`, so neither can distinguish a combinational `tdo` from a registered one — both produce the same value where they sample. Whatever the answer turns out to be, simulation will not provide it.
+>
+> **Update 2026-07-31 — a bound exists now, and it is too loose to decide anything.** The divider sweep ran the combinational version at every setting down to the fastest available, 3 repeats each: **all passed**, including 3×256 vectors at a 167 ns TCK period. So the launch-to-sample path settles in well under 83 ns. That is the first timing evidence this design has ever had — Vivado never analysed it (see RESULTS.md §4.2).
+>
+> It does not settle the issue, for two reasons. The sweep never found a failure, so it located the top of the FTDI's range rather than the top of the design's margin. And the frequency turned out to be 5x lower than believed — **6 MHz, not 30 MHz** — which is roughly where the 1149.1 argument below would expect the combinational version to be fine anyway.
+>
+> **The deciding experiment.** The driver sends MPSSE `0x8B`, which *enables* the divide-by-5 prescaler, while the comment claims it disables it. Sending `0x8A` instead raises the ceiling to 30 MHz — five times faster than anything tested — and this issue predicts the combinational `tdo` is precisely what fails first. Re-sweep with `0x8A`; if a divider fails, that is the answer, measured. See RESULTS.md §5C.
 
 `tdo <= datau(0)` is combinational, and `datau` is registered on the **rising** edge of TCK. The host reads with MPSSE opcodes `0x2C` and `0x2E`, both of which sample TDO on the **rising** edge. So the FPGA changes TDO on the same edge the host latches it.
 
-IEEE 1149.1 requires TDO to change on the falling edge of TCK precisely to avoid this. It survives today because the clock divider (`\x86\x3B\x00`, ~500 kHz) leaves enough slack that the FTDI's sample point lands after the FPGA's output has settled.
+IEEE 1149.1 requires TDO to change on the falling edge of TCK precisely to avoid this. It survives today because the clock divider (`\x86\x3B\x00`, **100 kHz** — not 500 kHz; see the update above) leaves enough slack that the FTDI's sample point lands after the FPGA's output has settled.
 
 **Fix — either side works, don't do both:**
 
@@ -81,7 +87,7 @@ IEEE 1149.1 requires TDO to change on the falling edge of TCK precisely to avoid
 
 - *Host side:* switch reads to the negative-edge opcodes `0x2D` / `0x2F`.
 
-**Then measure.** After fixing, sweep the divider from `0x3B` downward and record the fastest reliable setting. Divider `n` gives `30 MHz / (n+1)`, so `0x3B` = 60 → 500 kHz. The safe maximum, and the resulting vectors/second, is a concrete result worth reporting.
+**Then measure.** `scripts/sweep_divider.py` does this. Divider `n` gives `6 MHz / (n+1)` as the driver is currently configured, so `0x3B` = 59 → 100 kHz. (This originally read `30 MHz / (n+1)` → 500 kHz. That was wrong by 5x — the prescaler is enabled, not disabled.) Measured 2026-07-31: every divider passes, 17.3x throughput at `0x00`, no ceiling found.
 
 ---
 

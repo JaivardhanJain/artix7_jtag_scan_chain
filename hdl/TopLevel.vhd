@@ -29,7 +29,7 @@ architecture Struct of TopLevel is
   ------------------------------------------------------------------------------
   -- DUT I/O configuration -- edit these two to match your DUT
   ------------------------------------------------------------------------------
-  constant number_of_inputs  : integer := 7;
+  constant number_of_inputs  : integer := 3;
   constant number_of_outputs : integer := 1;
   ------------------------------------------------------------------------------
 

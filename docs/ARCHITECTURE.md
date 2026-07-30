@@ -117,7 +117,7 @@ The host does not use Vivado's JTAG API. It talks to the FTDI chip directly in *
 ```python
 dev.setBitMode(0, 0x02)     # MPSSE mode
 dev.write(b"\x8B")          # disable /5 clock prescaler
-dev.write(b"\x86\x3B\x00")  # clock divider -> ~500 kHz
+dev.write(b"\x86\x3B\x00")  # clock divider -> 100 kHz (see RESULTS.md 5C)
 dev.write(b"\x80\x00\x0B")  # set initial JTAG pin states/directions
 ```
 

@@ -77,12 +77,20 @@ end entity Widget;
 
 def test_reproduces_committed_wrappers():
     """
-    Generated port maps must match the hand-written ones, for every example
-    whose sources are present. string_detector's sources are gitignored
-    (coursework), so it is checked only when available locally.
+    Generated port maps must match the committed ones, for every example whose
+    sources are present. string_detector's sources are gitignored (coursework),
+    so it is checked only when available locally -- hence the `checked >= 1`
+    guard at the end, which stops this from passing vacuously in a fresh clone.
+
+    The alu case is the one with hardware behind it: that wrapper was generated
+    by this script and then passed 256/256 exhaustively on the board
+    (docs/RESULTS.md 5C). If the generator's layout ever drifts, this is the
+    test that catches it against a known-good result rather than against
+    another artefact of the same tool.
     """
     cases = [
         ("examples/seq1011/Seq1011.vhd", "examples/seq1011/DUT.vhd"),
+        ("examples/alu/ALU.vhd", "examples/alu/DUT.vhd"),
         ("examples/string_detector/StringDetector.vhdl",
          "examples/string_detector/DUT.vhd"),
     ]

@@ -11,7 +11,7 @@ The MAX 10 flow and this one are the same architecture. The FTDI MPSSE layer, th
 | Instruction register | 10 bits | **6 bits** |
 | User instruction | `USER1 = 0x0E`, `USER0 = 0x0C` (two-instruction sequence) | **`USER1 = 0x02`** (single instruction) |
 | Instruction selection | Virtual IR inside the IP | `JTAG_CHAIN` generic: `1` = USER1, `2` = USER2, `3`/`4` = USER3/4 |
-| Clock divider | `\x86\x02\x00` | `\x86\x3B\x00` (~500 kHz, slower) |
+| Clock divider | `\x86\x02\x00` | `\x86\x3B\x00` (100 kHz, 20x slower) |
 | Startup check | none | 32-bit IDCODE read before testing |
 | Programming | UrJTAG + pre-built `.svf` | Vivado Hardware Manager (`.bit`) |
 | Host script | `scan_vjtag.py` | `scan_bscane2.py` |
@@ -53,7 +53,7 @@ Authoritative IR codes come from the BSDL file for your exact part (`xc7a35tftg2
 
 ## 3. Clock rate
 
-The MAX 10 divider was `0x02`; the Artix-7 code uses `0x3B` (60 → ~500 kHz). The accompanying comment still reads *"Reduce clock frequency for MAX 10 due to pin sharing with JTAG"*, which is copy-paste residue — pin sharing is not the reason here.
+The MAX 10 divider was `0x02`; the Artix-7 code uses `0x3B` (59 → 100 kHz; the frequency formula in this project was 5x too high until 2026-07-31 — see RESULTS.md §5C). The accompanying comment still reads *"Reduce clock frequency for MAX 10 due to pin sharing with JTAG"*, which is copy-paste residue — pin sharing is not the reason here.
 
 The slow rate has not been justified by measurement. Given that TDO is currently launched and sampled on the same edge (Known Issues #2), the low rate may well be what's hiding that race. Fix the edge first, then sweep the divider and record the real limit.
 

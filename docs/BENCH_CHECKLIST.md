@@ -135,7 +135,7 @@ fc.exe after_interrupt.txt parity.txt
 
 ## Step 3 — Divider sweep: the one measurable improvement (15 min)
 
-The clock was left at `0x3B` (~500 kHz) by the original author, with no recorded justification. With the TDO race fixed, the safe ceiling should be higher. This produces the project's only quantitative before/after number.
+The clock was left at `0x3B` (100 kHz) by the original author, with no recorded justification. This produces the project's only quantitative before/after number. **Done — every divider passed; see the table below and RESULTS.md §5C.** The remaining version of this test is to re-run it with MPSSE `0x8A` in place of `0x8B`, which raises the ceiling from 6 MHz to 30 MHz and is the only way to find where the design actually stops working.
 
 ```
 python host\scanchain.py -t examples\alu\TRACEFILE.txt -o d3B.txt -d 0x3B
@@ -148,16 +148,17 @@ python host\scanchain.py -t examples\alu\TRACEFILE.txt -o d00.txt -d 0x00
 
 The ALU must be built and programmed first — do step 4, then come back.
 
-`TCK = 30 MHz / (divider + 1)`:
+`TCK = 6 MHz / (divider + 1)` as the driver is currently configured — it sends MPSSE `0x8B`, which *enables* the /5 prescaler. (This table read `30 MHz / (n+1)` until 2026-07-31; it was 5x too high. See RESULTS.md §5C.)
 
-| Divider | TCK |
-|---|---|
-| `0x3B` | 500 kHz |
-| `0x1D` | 1 MHz |
-| `0x0E` | 2 MHz |
-| `0x06` | 4.3 MHz |
-| `0x02` | 10 MHz |
-| `0x00` | 30 MHz |
+| Divider | TCK | Measured 2026-07-31, ALU 256 |
+|---|---|---|
+| `0x3B` | 100 kHz | PASS 3/3 — 4062 vectors/s |
+| `0x1D` | 200 kHz | PASS 3/3 — 8491 |
+| `0x0E` | 400 kHz | PASS 3/3 — 14069 |
+| `0x06` | 857 kHz | PASS 3/3 — 30099 |
+| `0x02` | 2.00 MHz | PASS 3/3 — 63299 |
+| `0x01` | 3.00 MHz | PASS 3/3 — 65729 |
+| `0x00` | 6.00 MHz | PASS 3/3 — 70276 (**17.3x**) |
 
 **Record for each:** pass/fail count and the `vectors/s` figure from the summary. The fastest divider that still passes 256/256 is the result.
 

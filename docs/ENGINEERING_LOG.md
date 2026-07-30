@@ -73,7 +73,7 @@ This is the most serious finding because it is silent and because the passing 40
 
 `tdo <= datau(0)` is combinational, `datau` is registered on the **rising** edge of TCK, and the host reads with MPSSE `0x2C`/`0x2E` — also rising edge. IEEE 1149.1 requires TDO to change on the falling edge precisely so the host can sample safely on the rising edge.
 
-Found by cross-checking the MPSSE opcode edge semantics against the HDL clocking. It works today because the ~500 kHz divider leaves enough slack for the output to settle before the FTDI's sample point. That is timing margin, not design — and it is a plausible explanation for why the divider is set so conservatively in the first place.
+Found by cross-checking the MPSSE opcode edge semantics against the HDL clocking. It works today because the ~500 kHz divider [**correction, entry 016: the divider is 100 kHz, not 500 kHz — every frequency in this log before entry 016 is 5x too high**] leaves enough slack for the output to settle before the FTDI's sample point. That is timing margin, not design — and it is a plausible explanation for why the divider is set so conservatively in the first place.
 
 ### D3 — Mask column parsed and discarded *(medium)*
 
@@ -884,3 +884,153 @@ Both major failures this session presented as a constant on TDO:
 D1 moves to **hardware-demonstrated**, with a controlled A/B and a quantified silent-failure rate. Of everything in this project this is the strongest single result: it shows a defect the original author's 4096-vector sweep could not have exposed, because an uninterrupted run never enters the failing state.
 
 The pre-fix `TopLevel.vhd` edit is uncommitted and must be reverted with `git checkout hdl/TopLevel.vhd`, then rebuilt and reprogrammed.
+
+---
+
+## Entry 016 — 2026-07-31 — The sweep found a bug in the sweep
+
+Two things ran: the ALU exhaustive test, and the divider sweep it was gating.
+
+### 16.1 First hardware run of a machine-generated wrapper
+
+```
+examples\alu\TRACEFILE.txt: 256 vectors, 8 in / 6 out
+256 vectors: 256 passed, 0 failed, 0 skipped (masked)
+```
+
+**256/256, the whole input space.** Everything in that pipeline was generated: `new_lab.py` read `ALU.vhd` and wrote `DUT.vhd`, patched the width constants in `TopLevel.vhd`, and the tracefile came from a Python golden model of the same entity. Nobody hand-wrote a bit mapping.
+
+That is the plug-and-play claim demonstrated rather than asserted. It also retires a specific worry: `new_lab.py`'s bit layout was derived by reproducing two existing hand-written wrappers, so it was only ever known to agree with the convention it was reverse-engineered from. It now agrees with silicon.
+
+### 16.2 The sweep, and a prediction that failed usefully
+
+Every divider passed 3/3, up to the fastest available. **4062 → 70276 vectors/s, 17.3x.**
+
+I had written down the opposite beforehand: *"I expect little or no throughput gain … roughly 90% of the time is USB round-trip and Python overhead, not TCK."*
+
+Worth dwelling on why that was wrong, because the reasoning was not sloppy — it was arithmetic on a wrong constant. The estimate of JTAG traffic per vector was about right (I guessed ~30 µs; counted properly from the encoders it is 24 TCK cycles). What was wrong was the clock those 24 cycles run at. I took `500 kHz` from the comment in the source. The real figure is **100 kHz**, so the traffic takes 240 µs, not 48 µs — it was never the small term, and there was never 90% of anything to be dominated by host overhead.
+
+A prediction derived correctly from a wrong input fails in a way that points at the input. That is the only reason this was found.
+
+### 16.3 `0x8B` enables the prescaler; the comment says it disables it
+
+```python
+self.dev.write(b"\x8B")        # disable /5 prescaler
+```
+
+MPSSE `0x8A` disables the divide-by-5 prescaler. `0x8B` **enables** it. So the master clock is 60/5 = 12 MHz, and
+
+```
+TCK = 12 MHz / (2 * (divider + 1)) = 6 MHz / (divider + 1)
+```
+
+not `30 MHz / (n+1)`. Every frequency this project has ever quoted — in the driver, in `KNOWN_ISSUES.md` #2, in the first version of `sweep_divider.py`, and in my own reasoning all week — is **5x too high**. `0x3B` is 100 kHz. The ceiling is 6 MHz.
+
+The line is inherited verbatim from `scan_bscane2.py`, comment included. It was copied without being questioned, which is exactly what one does with a line that has 4096/4096 behind it.
+
+### 16.4 The measurement identifies the base clock without appealing to a datasheet
+
+This is the part I want on record, because "I misremembered an opcode" is not evidence either way and I have already been confidently wrong twice this project.
+
+Model a vector as `t = 24/f_tck + a`, where 24 is *counted* from the encoders and `a` is a constant host cost. Solve for `a` at each of the seven dividers under the 6 MHz base: the residuals are 6.2, −2.2, 11.1, 5.2, 3.8, 7.2, 10.2 µs — **mean 5.9, flat across a 60x range of clock rates.** That is what a constant looks like.
+
+Under the 30 MHz assumption the residual would have to be 198 µs at `0x3B` and 13 µs at `0x00`. A "constant" that varies 15x with the clock is not a constant; it is the clock, mislabelled.
+
+So the sweep's own timing data falsifies the sweep's own frequency column. I would not have trusted this from recall alone.
+
+### 16.5 It cuts the other way on issue #2
+
+The pleasant reading of the sweep was "the TDO path survives 30 MHz, issue #2 is closed." That reading is gone. What is actually established is that it survives **6 MHz**, which is about where the original 1149.1 argument would have predicted it was fine anyway. The measurement does not discriminate between the two positions.
+
+Nor did the sweep find a failure at all — it ran out of clock, not out of margin. Both the throughput number and the timing bound are censored at the top.
+
+The follow-up is now sharp and cheap: **send `0x8A`, re-sweep to 30 MHz.** Five times faster than anything tested, and issue #2 names the combinational TDO assignment as the thing that should break first. If a divider fails, that is the timing ceiling, measured — and the first hard evidence in either direction on a question that has already produced one defect claim, one withdrawal, and one withdrawal of the withdrawal.
+
+Not done in this commit. The prescaler stays on, and the default stays `0x3B`: every hardware result in `RESULTS.md` was taken under those conditions, and changing them is an experiment to run deliberately, not a tidy-up to slip in alongside a documentation edit.
+
+### 16.6 What changed here
+
+| | |
+|---|---|
+| `sweep_divider.py` | `FTDI_BASE_HZ` 30 MHz → 6 MHz, with the derivation in a comment |
+| `scanchain.py` | Corrected comment on `0x8B`, corrected `--divider` help, `0x02` documented as the fast option |
+| `RESULTS.md` | Section 5C |
+| `KNOWN_ISSUES.md` #2 | Frequencies corrected; the 6 MHz bound recorded; `0x8A` named as the deciding experiment |
+
+### 16.7 Remaining
+
+| | |
+|---|---|
+| Re-sweep with `0x8A` to locate the real ceiling (D2) | **Outstanding** — the highest-value single experiment left |
+| `seq1011` 602-vector run | **Outstanding** |
+| Change the default divider to `0x02` after more repeats | **Deferred**, deliberately |
+| Clean-clone walkthrough | **Outstanding** |
+
+---
+
+## Entry 017 — 2026-07-31 — Clean-clone review: what the repo actually ships
+
+Final review. Method: clone the repository into an empty directory and behave like someone who has never seen it — run every command the docs promise, follow every link, and check whether the claims match the code.
+
+Six problems. All six were invisible from inside the working tree, which is the argument for doing this at all.
+
+### 17.1 The tool that produced the headline result was never committed
+
+`scripts/sweep_divider.py` was untracked. `RESULTS.md` §5C, `KNOWN_ISSUES.md` #2 and the engineering log all cite it by name; a fresh clone did not have it. The single worst kind of documentation bug — a reproducibility claim pointing at a file that does not exist.
+
+### 17.2 The default configuration pointed at the one example that cannot be built
+
+`hdl/TopLevel.vhd` was committed with `number_of_inputs = 7, number_of_outputs = 1` — the string detector's widths. Those sources are deliberately gitignored, so out of the box the repository was configured for the example a fresh clone is guaranteed not to have. Now committed at seq1011's 3/1, matching the quickstart, the `scripts/README.md` usage block and `examples/README.md`'s "the example to start from".
+
+Worth noting how this happened: `new_lab.py --patch-toplevel` rewrites those constants every time anyone targets a different DUT, so the committed value is whatever the last bench session happened to leave behind. It is a working file masquerading as a configuration file. Not fixed here, but it is the reason this will drift again.
+
+### 17.3 `seq1011/DUT.vhd` was hand-written, not generated
+
+The flagship example's wrapper predated `new_lab.py` and differed from the generator's output — in comment wording and column alignment only; normalising whitespace and stripping comments showed the two semantically identical, and the port map was already byte-identical in substance.
+
+Cosmetic, but the example exists to demonstrate the generated workflow, and it was not actually a product of it. Regenerated. Both committed wrappers whose sources ship now match `new_lab.py` output **byte for byte**, so the check is a trivially repeatable one-liner rather than a judgement call.
+
+### 17.4 The generator's regression test omitted the case with hardware behind it
+
+`test_reproduces_committed_wrappers` covered seq1011 and string_detector. It did not cover the ALU — the only wrapper that has been validated on silicon, 256/256 exhaustively. Added.
+
+The test was otherwise well built and I want to record why: it compares extracted **port pairs** rather than text, which is why it stayed green through 17.3 rather than failing on comment wording; and it counts what it checked and asserts `checked >= 1`, so it cannot pass vacuously in a clone that lacks the gitignored sources. That guard is precisely the failure this project already walked into once with `test_encode_ir_shape` (entry 013).
+
+### 17.5 The README claimed a change that had been reverted
+
+`### 3. TDO registered on the falling edge of TCK — fixes issue #2`, stated as fact, with a verification paragraph. The code says otherwise: the register was withdrawn and `KNOWN_ISSUES.md` #2 has said "unproven in both directions" for two days. The top-level README — the file most people read and the only one many read — was asserting a fix the repository does not contain.
+
+Rewritten to describe the change, the withdrawal, and the contaminated evidence behind the withdrawal, and retitled so the status is legible from the heading.
+
+### 17.6 Stale status claims throughout
+
+`README.md`: *"nothing has been validated on hardware yet"* — untrue since entry 014. `scripts/README.md`: four scripts marked **"not yet validated on hardware"** that have each since built or programmed a real board, and no mention of `sweep_divider.py` at all. Both corrected, with the specific evidence rather than a bare "working".
+
+### 17.7 What the clean clone now does, unassisted
+
+```
+host/test_scanchain.py     30 tests, 0 failures
+scripts/test_new_lab.py    19 tests, 0 failures
+sim/model_scan_core.py     264 checks, 0 errors
+--dry-run                  all 3 tracefiles valid
+new_lab.py                 regenerates both shipped wrappers byte-identically
+gen_tracefile.py           regenerates both tracefiles byte-identically
+markdown links             0 broken across 52 files
+```
+
+No board, no Vivado, no network. Everything a reviewer needs to convince themselves the tooling is real, before deciding whether to trust the hardware claims.
+
+### 17.8 The general lesson
+
+Every one of these six is a claim that was true when written and quietly stopped being true. None were caught by any test, because none are the kind of thing tests check — the repository was internally consistent and externally wrong.
+
+The only mechanism that found them was leaving the working tree and reading the artefact as a stranger would. That took about fifteen minutes and found a missing file, a misconfigured default, and a README asserting a fix that had been reverted a day earlier. Worth doing before any repository is shown to anyone.
+
+### 17.9 Remaining
+
+| | |
+|---|---|
+| Re-sweep with `0x8A` to locate the real timing ceiling (D2) | **Outstanding** — the highest-value experiment left |
+| `seq1011` 602-vector hardware run | **Outstanding** |
+| Change the default divider to `0x02` after more repeats | **Deferred**, deliberately |
+| `TopLevel.vhd` widths are a generated value under version control | **Known wart** — see 17.2 |

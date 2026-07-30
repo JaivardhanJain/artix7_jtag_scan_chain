@@ -2,13 +2,14 @@
 
 | Script | Purpose | Status |
 |---|---|---|
-| `build.bat` | Wrapper: finds Vivado, then runs `build.tcl`. **Use this.** | Written, **not yet validated** |
-| `program.bat` | Wrapper: finds Vivado, then runs `program.tcl`. **Use this.** | Written, **not yet validated** |
-| `build.tcl` | Headless Vivado project creation + synth + impl + bitstream | Written, **not yet validated on hardware** |
-| `program.tcl` | Headless Hardware Manager programming, releases the cable on exit | Written, **not yet validated on hardware** |
+| `build.bat` | Wrapper: finds Vivado, then runs `build.tcl`. **Use this.** | **Hardware-validated** — built 3 designs, 0 errors |
+| `program.bat` | Wrapper: finds Vivado, then runs `program.tcl`. **Use this.** | **Hardware-validated** on xc7a35t |
+| `build.tcl` | Headless Vivado project creation + synth + impl + bitstream | **Hardware-validated** — clean, no `UCIO-1` |
+| `program.tcl` | Headless Hardware Manager programming, releases the cable on exit | **Hardware-validated**, cable released on every exit path |
 | `find_vivado.bat` | Locates `settings64.bat` and puts the tools on `PATH`. Shared by the wrappers and `sim/run_sim.bat`. | — |
-| `new_lab.py` | Generate a `DUT.vhd` wrapper and width constants from a DUT entity | **Working**, 19 offline tests |
-| `test_new_lab.py` | Tests for the generator. No toolchain needed. | — |
+| `new_lab.py` | Generate a `DUT.vhd` wrapper and width constants from a DUT entity | **Hardware-validated** — its ALU wrapper passed 256/256 exhaustively |
+| `sweep_divider.py` | Find the fastest JTAG clock divider that still passes, with repeats | **Hardware-validated** — produced [RESULTS.md §5C](../docs/RESULTS.md) |
+| `test_new_lab.py` | Tests for the generator. No toolchain needed. | 19 offline tests |
 
 ## Usage
 
@@ -24,6 +25,22 @@ Optional second argument overrides the part:
 ```
 scripts\build.bat examples\seq1011 xc7a15tftg256-1
 ```
+
+### Finding a faster clock
+
+```
+python scripts\sweep_divider.py -t examples\alu\TRACEFILE.txt
+```
+
+Runs the driver at each divider `-n` times (default 3) and reports the fastest
+that passed every repeat. Use a few hundred vectors at minimum — below that the
+runtime is host-dominated and the numbers are noise.
+
+The default `0x3B` is **100 kHz**; `TCK = 6 MHz / (divider + 1)` as the driver
+is currently configured. `0x02` (2 MHz) is ~15x faster and has passed 3/3 on
+hardware. Note that the driver enables the FTDI's /5 prescaler, so 6 MHz is the
+current ceiling — not the 30 MHz this project assumed until 2026-07-31.
+[RESULTS.md §5C](../docs/RESULTS.md) has the measurement and the correction.
 
 ### Why the `.bat` wrappers exist
 

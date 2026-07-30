@@ -177,7 +177,9 @@ Nine issues in total. Full write-ups and fixes: [docs/KNOWN_ISSUES.md](docs/KNOW
 
 ## Changes to the original implementation
 
-This section records every deviation from the code as inherited: what changed, what problem in the original it solves, and how the change was proven correct. The HDL changes are **verified in simulation** and the host changes by offline tests; **nothing has been validated on hardware yet.**
+This section records every deviation from the code as inherited: what changed, what problem in the original it solves, and how the change was proven correct.
+
+**All of it now runs on hardware.** One command builds, one programs, one tests. The scan-core split reproduces the original's captured output exactly; the desync fix is demonstrated by a controlled A/B on two bitstreams; a machine-generated wrapper passed 256/256 exhaustively; and throughput is 17x the inherited setting. Evidence tier by tier, including what is still unproven: [docs/RESULTS.md](docs/RESULTS.md).
 
 ### 1. Scan logic split into `scan_core.vhd`
 
@@ -201,17 +203,17 @@ The host already issues a TAP reset before its IDCODE read at startup, so with t
 
 **Verification.** Confirmed in simulation — `tb_scan_core` tests 2 and 3 abandon a vector mid-flight and recover via TAP reset and via deselect respectively, both passing. The remaining bench test is the real-world version: start a run, `Ctrl-C` it mid-vector, then rerun **without reprogramming the FPGA** and confirm a full pass. That fails on the original code.
 
-### 3. TDO registered on the falling edge of TCK — fixes [issue #2](docs/KNOWN_ISSUES.md)
+### 3. TDO launch edge — proposed, then **reverted**. [Issue #2](docs/KNOWN_ISSUES.md) is open.
 
-**What.** `tdo <= datau(0)` was a combinational assignment from a rising-edge register. It is now a register clocked on the falling edge of TCK.
+**The code here is the original's.** `tdo <= datau(0)`, combinational. This entry stays in the list because the change was made, shipped in an earlier commit, and then withdrawn — and the withdrawal is the part worth reading.
 
-**Why — the problem in the original.** The host reads TDO with MPSSE opcodes `0x2C`/`0x2E`, which sample on the **rising** edge of TCK. `datau` updates on the rising edge too. So the FPGA changed TDO on the same edge the host latched it — a launch/sample race. IEEE 1149.1 specifies TDO changes on the falling edge for exactly this reason.
+**The original argument.** The host reads TDO with MPSSE opcodes `0x2C`/`0x2E`, which sample on the **rising** edge of TCK. `datau` updates on the rising edge too, so the FPGA changes TDO on the same edge the host latches it. IEEE 1149.1 specifies TDO changes on the falling edge for exactly this reason. The fix was a register on the falling edge.
 
-It worked, but only because the clock divider (`0x3B`, ~500 kHz) left enough slack for the output to settle before the FTDI's sample point. That is timing margin, not design, and it is a plausible explanation for why the divider was set so conservatively in the first place.
+**Why it was withdrawn — and why that reasoning was also wrong.** The first hardware run showed TDO stuck at 1, which looked like the new register breaking the link. It was not: the real cause was a bug in `host/scanchain.py` (`encode_ir` sent TMS=0 instead of TMS=1 leaving Shift-IR, so USER1 was never selected). The falling-edge register was therefore **never tested against a working host** — the evidence used to retire the issue was contaminated by an unrelated defect.
 
-**Why the host needs no change.** Moving the launch edge does not shift the data. After Capture-DR on rising edge *N*, the falling edge of *N* launches bit 0; the host samples it on rising edge *N+1*, half a clock later, by which point it has been stable. Same bits, same order, no added latency — only the launch edge moves. The timing walkthrough is in the header of `scan_core.vhd`.
+**Where it stands.** No evidence the register is harmful; no evidence the original is defective. The combinational version is kept because it is the configuration with 4096/4096 behind it — an argument from evidence, not a demonstration. Simulation cannot settle it, since both `tb_scan_core` and `model_scan_core.py` stand in for `BSCANE2` and sample at the same point either way.
 
-**Verification.** The off-by-one concern is settled: `tb_scan_core` test 1 passes 256 vectors exhaustively, and it samples `tdo` while `tck` is low — exactly what an MPSSE `0x2C`/`0x2E` read sees — so a shifted launch edge would have failed every vector. What simulation cannot give is the real timing margin: sweep the clock divider down from `0x3B` on hardware and record the fastest reliable setting before and after. That delta is the project's one concrete, measurable improvement claim.
+**What the sweep added, and what it did not.** The combinational version is now measured correct at a 167 ns TCK period ([RESULTS.md §5C](docs/RESULTS.md)) — the first timing evidence this design has ever had, since Vivado never analysed it. But no divider failed, so it found the FTDI's ceiling rather than the design's, and the ceiling turned out to be 6 MHz rather than the assumed 30 MHz. That is roughly where the 1149.1 argument would expect the combinational version to be fine anyway, so it does not discriminate. **The deciding experiment is to send MPSSE `0x8A` instead of `0x8B`, unlocking 30 MHz, and re-sweep.**
 
 ### 4. Simulation testbench — addresses [issue #9](docs/KNOWN_ISSUES.md)
 
@@ -253,7 +255,9 @@ All example DUTs and tracefiles. Issues #5, #6 and #7 remain open.
 
 ## Roadmap
 
-**Next step: [docs/BENCH_CHECKLIST.md](docs/BENCH_CHECKLIST.md)** — everything that cannot be verified without the board, in order, with expected outputs.
+The bench work in [docs/BENCH_CHECKLIST.md](docs/BENCH_CHECKLIST.md) is done — build, program, parity, the D1 A/B, the ALU exhaustive run and the divider sweep all passed on the board. Results and evidence tiers: [docs/RESULTS.md](docs/RESULTS.md).
+
+**Next step:** re-run the divider sweep with the FTDI's /5 prescaler disabled (MPSSE `0x8A`). It raises the ceiling from 6 MHz to 30 MHz and is the only experiment that can settle [issue #2](docs/KNOWN_ISSUES.md) in either direction.
 
 Six phases, ~11–12 hours: make it build reproducibly, fix the two real bugs, harden the host script, automate the build/program/wrapper-generation, add a hardware-free simulation testbench, and document the results. See [docs/ROADMAP.md](docs/ROADMAP.md) for the phase checklists, and [docs/ENGINEERING_LOG.md](docs/ENGINEERING_LOG.md) for the state this project was inherited in, the reasoning behind the phase ordering, and a defect-to-phase traceability matrix.
 

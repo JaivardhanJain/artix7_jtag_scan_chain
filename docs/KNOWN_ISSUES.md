@@ -42,17 +42,19 @@ Then have the host issue a TAP reset at the start of every run — it already do
 
 ## 2. ~~TDO launched and sampled on the same clock edge~~ — NOT A DEFECT
 
-> **STATUS: withdrawn. This was a misdiagnosis, and the "fix" broke the design on hardware.**
+> **STATUS: unproven in both directions. Reverted to the original combinational assignment.**
 >
-> The falling-edge TDO register was built, passed the Python model, passed the VHDL testbench, synthesised cleanly — and on the first hardware run produced **TDO stuck at 1, 41 of 44 vectors failing**. Reverted to the original combinational assignment.
+> This entry has been wrong twice and the correction matters more than the conclusion.
 >
-> **Why the reasoning was wrong.** IEEE 1149.1 does require TDO to change on the falling edge of TCK. But `BSCANE2` is not a pin — it sits *inside* the TAP. The primitive samples this port and drives the physical TDO pad itself, already performing the falling-edge launch the standard asks for. Adding a second falling-edge register inserts half a cycle inside the TAP's own path, and the data misses the primitive's sample point.
+> **First** it claimed the combinational assignment was a defect. **Then**, when the first hardware run showed TDO stuck at 1, it claimed the falling-edge register was the cause and that the original was vindicated.
 >
-> The obligation was already satisfied one level up. **The original author's combinational assignment was correct**, and its 4096/4096 hardware record was evidence of that rather than of luck — which is exactly what the original write-up below dismissed.
+> **That second claim was also unfounded.** The stuck-at-1 was caused by a bug in `host/scanchain.py` — `encode_ir` sent TMS=0 instead of TMS=1 when leaving Shift-IR, so USER1 was never latched and the user data register was never in the scan path. That fully explains the symptom, and it means the falling-edge register was **never actually tested against a working host**. The evidence used to withdraw this issue was contaminated by an unrelated defect.
 >
-> **Why simulation missed it.** `tb_scan_core` and `model_scan_core.py` both stand in for `BSCANE2`, and `BSCANE2`'s own TDO sampling is precisely what the change violated. Neither can distinguish a combinational `tdo` from a falling-edge-registered one; both produce the same value at the point they sample. The caveat written when the testbench was built — *"if the primitive's timing differs from what's modelled, only hardware will show it"* — turned out to name this exact failure.
+> **Where that leaves it.** There is no evidence the falling-edge register is harmful, and no evidence the original assignment is defective. The combinational version is retained because it is the configuration with 46/46 and 4096/4096 behind it — a "don't change what has hardware evidence" argument, not a demonstration.
 >
-> The analysis below is retained as a record of the mistake. Do not reinstate the change without hardware to test it on.
+> **This is now cheaply testable.** With the host fixed, reinstating the falling-edge register, rebuilding and rerunning would settle it in one cycle. Until someone does, treat the original 1149.1 analysis below as an open question rather than either a defect or a debunked one.
+>
+> **What simulation genuinely cannot tell you here.** `tb_scan_core` and `model_scan_core.py` both stand in for `BSCANE2`, so neither can distinguish a combinational `tdo` from a registered one — both produce the same value where they sample. Whatever the answer turns out to be, simulation will not provide it.
 
 `tdo <= datau(0)` is combinational, and `datau` is registered on the **rising** edge of TCK. The host reads with MPSSE opcodes `0x2C` and `0x2E`, both of which sample TDO on the **rising** edge. So the FPGA changes TDO on the same edge the host latches it.
 

@@ -680,3 +680,78 @@ The `scan_core` split also stands, and is worth noting: it made this revert a th
 Reverted to `tdo <= datau(0)`. **This is a hypothesis with strong support, not a confirmed diagnosis** — the stuck-at-1 pattern and the single-variable change point at it, but the decisive evidence is a rebuild and a rerun. If the parity run passes after this revert, the diagnosis is confirmed. If it does not, the cause is elsewhere and this entry needs rewriting.
 
 D2 is recorded as **withdrawn**, with the original analysis kept in `KNOWN_ISSUES.md` as a record of the mistake. Deleting it would hide the most instructive thing in the project.
+
+---
+
+## Entry 013 — 2026-07-31 — The real bug: one wrong byte in the IR sequence
+
+The bisection settled it. Against the *current* bitstream:
+
+```
+python host\scan_bscane2.py examples\string_detector\TRACEFILE.txt orig.txt
+  -> 46/46 Success
+python host\scanchain.py  -t examples\string_detector\TRACEFILE.txt -o parity.txt
+  -> 3 passed, 41 failed
+```
+
+**The HDL is fine. The bug was mine, in `scanchain.py`.**
+
+That also means entry 012 was wrong, and I will come back to that.
+
+### 13.1 The bug
+
+`encode_ir` builds the sequence that loads a 6-bit instruction. Its last command clocks the top instruction bit out while TMS rises to leave Shift-IR. I wrote:
+
+```python
+out += bytes([CMD_CLOCK_TMS_NOREAD, 0x00, (instruction >> 5) & 1])
+```
+
+reading the payload byte as a data value. It is not. In a `0x4B` command:
+
+```
+bits 6..0   TMS values, clocked out LSB first
+bit 7       the TDI level, held constant for the command
+```
+
+The correct byte is `(top_bit << 7) | 0x01` — TDI carries the instruction bit, and the `0x01` is **TMS=1**, which is the part that actually leaves Shift-IR.
+
+For USER1 (`0x02`) the top bit is 0, so my version emitted `0x00`: TMS=0. The TAP stayed in Shift-IR, the instruction was never latched into the IR, USER1 was never selected, and the `BSCANE2` data register was never placed in the scan path. TDO then read back as 1 on every vector — exactly the stuck-at-1 symptom.
+
+The IDCODE read still worked throughout, which is what made it confusing: that sequence runs *before* `select_user1` and never depended on the broken byte.
+
+One byte. `0x00` where `0x01` was needed.
+
+### 13.2 Why the test suite did not catch it
+
+The equivalence tests compare `encode_input_scan`, `encode_output_scan` and `decode_output` against the original across widths 1–64. They do not cover the **initialisation sequence** — divider, pin setup, TAP reset, IDCODE read, `select_user1`.
+
+That gap was actually written down, in `host/README.md`, before the hardware run: *"What these tests do not cover: anything involving the FTDI device..."* — and the previous entry noted the same gap explicitly while looking for this bug. Naming a gap is not the same as closing it.
+
+Worse: I wrote `test_encode_ir_shape` and asserted `out[8] == 0`, encoding my own misunderstanding into a test. It passed, and it was wrong. **A test written from the same wrong model as the code confirms the model, not the code.** The equivalence tests avoid this by construction — they compare against an independent artefact, the original source — which is precisely why they are the ones that held.
+
+Now fixed: `test_encode_ir_matches_the_original_byte_for_byte` pins the whole sequence to the original's literal bytes, and a second test asserts the TMS bit is set for all 64 instructions.
+
+### 13.3 Entry 012 was wrong, and this is the more important correction
+
+Entry 012 concluded that the falling-edge TDO register broke the board, that D2 was a misdiagnosis, and that the original combinational assignment was thereby vindicated.
+
+**That conclusion rested on contaminated evidence.** The stuck-at-1 is fully explained by the IR bug. The falling-edge register was never tested against a working host — it was in the bitstream during two runs where the host could not select the user data register at all, so it could not have been exercised either way.
+
+So the honest position on D2 is now: **unproven in both directions.** No evidence the falling-edge register is harmful. No evidence the original assignment is defective. The combinational version is retained on a "don't change what has hardware evidence" basis, which is a reason to prefer it, not a demonstration that the alternative fails.
+
+It is cheaply testable now — reinstate the register, rebuild, rerun — and that experiment is worth an entry of its own if anyone runs it.
+
+I am recording this rather than quietly editing entry 012 because the pattern is the point: **I produced a confident, well-argued, internally consistent diagnosis from a symptom that had a completely different cause, twice in the same session, on the same issue.** Both times the reasoning was sound and the premise was wrong. The thing that broke the loop was not better reasoning; it was running the original driver against the same bitstream — a measurement that could only come out one of two ways, and eliminated half the search space regardless of which.
+
+### 13.4 What the bisection cost and saved
+
+One command. It was possible only because `scan_bscane2.py` was kept unmodified in the repository specifically as a reference — a decision made when the rewrite started, for exactly this situation. Without it, the next step would have been another round of theorising about `BSCANE2` timing.
+
+### 13.5 Status
+
+| | |
+|---|---|
+| HDL (D1 fix, scan_core split, empty XDC) | **Sound** — original driver passes 46/46 against the current bitstream |
+| `scanchain.py` IR bug | **Fixed**, pinned to the original's bytes, 30 tests passing |
+| D2 (TDO launch edge) | **Unproven both ways.** Reverted; testable in one cycle |
+| Parity run with the fixed host | **Not yet run** |

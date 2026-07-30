@@ -299,13 +299,48 @@ def test_encoders_return_bytes_not_bytearray():
     assert not isinstance(encode_ir(0x02), bytearray)
 
 
+def test_encode_ir_matches_the_original_byte_for_byte():
+    """
+    Pinned to the literal bytes scan_bscane2.py sends. This is the test that
+    was missing: the equivalence suite covered the per-vector encoders but not
+    the initialisation sequence, and the bug that broke the first hardware run
+    lived exactly there.
+
+    Transcribed from the original:
+
+        dev.write(b"\x4B\x03\x03")   # -> Shift-IR
+        dev.write(b"\x1B\x04\x02")   # 5 bits of USER1 (0x02)
+        dev.write(b"\x4B\x00\x01")   # 6th bit + Exit1-IR
+    """
+    assert encode_ir(0x02) == b"\x4B\x03\x03\x1B\x04\x02\x4B\x00\x01"
+
+
+def test_encode_ir_payload_is_tms_not_a_value():
+    """
+    The payload byte of a 0x4B command is bits 6..0 = TMS values, bit 7 = TDI.
+    It is not a data value.
+
+    Reading it as a value produced `0x00` for USER1 -- TMS=0, so the TAP never
+    left Shift-IR, the instruction was never latched, and every vector read
+    back 1. The low bit must always be 1 (TMS=1, leave Shift-IR); the top
+    instruction bit rides in bit 7.
+    """
+    for instruction in range(64):
+        last = encode_ir(instruction)[8]
+        assert last & 0x01 == 1, \
+            f"instruction 0x{instruction:02X}: TMS bit missing, TAP will not " \
+            f"leave Shift-IR"
+        assert (last >> 7) & 1 == (instruction >> 5) & 1, \
+            f"instruction 0x{instruction:02X}: bit 5 not carried on TDI"
+
+
 def test_encode_ir_shape():
     """6-bit IR: 5 bits shifted in Shift-IR, the 6th clocked with TMS."""
     out = encode_ir(0x02)
     assert out[0] == 0x4B and out[1] == 0x03 and out[2] == 0x03   # -> Shift-IR
     assert out[3] == 0x1B and out[4] == 0x04 and out[5] == 0x02   # low 5 bits
-    assert out[6] == 0x4B and out[7] == 0x00 and out[8] == 0x00   # bit 5 = 0
-    assert encode_ir(0x22)[8] == 1, "bit 5 should be the 6th instruction bit"
+    assert out[6] == 0x4B and out[7] == 0x00                      # 1 TMS clock
+    assert encode_ir(0x22)[8] == 0x81, "bit 5 set -> TDI high, TMS still 1"
 
 
 # ===========================================================================

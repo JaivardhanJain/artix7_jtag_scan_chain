@@ -349,7 +349,26 @@ def encode_ir(instruction: int) -> bytes:
     out = bytearray()
     out += bytes([CMD_CLOCK_TMS_NOREAD, 0x03, 0x03])          # -> Shift-IR
     out += bytes([CMD_WRITE_BITS, 0x04, instruction & 0x1F])  # low 5 bits
-    out += bytes([CMD_CLOCK_TMS_NOREAD, 0x00, (instruction >> 5) & 1])
+
+    # The 6th (top) instruction bit is clocked out at the same time TMS rises to
+    # leave Shift-IR -- the same trick used for the last bit of a DR scan.
+    #
+    # The payload byte of a 0x4B command is NOT a data value. Its layout is:
+    #
+    #   bits 6..0  the TMS values to clock out, LSB first
+    #   bit 7      the TDI level, held constant for the whole command
+    #
+    # So the byte is (top_bit << 7) | 0x01: TDI carries the instruction bit,
+    # and the 0x01 is TMS=1, which is what actually leaves Shift-IR.
+    #
+    # An earlier version of this function read the byte as a plain value and
+    # emitted `(instruction >> 5) & 1`. For USER1 (0x02) the top bit is 0, so it
+    # sent TMS=0 -- the TAP stayed in Shift-IR, the instruction was never
+    # latched, USER1 was never selected, and TDO read back as 1 on every vector.
+    # 41 of 44 vectors failed while the IDCODE read still worked, because the
+    # IDCODE path happens before this and never depended on it.
+    out += bytes([CMD_CLOCK_TMS_NOREAD, 0x00,
+                  (((instruction >> 5) & 1) << 7) | 0x01])
     return bytes(out)
 
 

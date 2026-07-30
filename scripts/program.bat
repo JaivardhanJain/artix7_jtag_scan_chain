@@ -35,6 +35,11 @@ if %RC% neq 0 (
     echo   - board not connected or not powered
     echo   - Vivado GUI has the cable open ^(close Hardware Manager^)
     echo   - no bitstream yet: run scripts\build.bat first
+    echo.
+    echo Releasing the JTAG cable so the host script is not blocked...
+    taskkill /F /IM hw_server.exe >nul 2>&1
+    taskkill /F /IM cs_server.exe >nul 2>&1
+    echo Done.
     endlocal
     exit /b 1
 )

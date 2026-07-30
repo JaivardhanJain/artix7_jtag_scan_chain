@@ -1,24 +1,45 @@
 # ---------------------------------------------------------------------------
 # Headless Hardware Manager programming.
 #
+#   scripts\program.bat                    (finds Vivado itself)
 #   vivado -mode batch -source scripts/program.tcl [-tclargs <path_to_bit>]
 #
 # Defaults to the bitstream produced by scripts/build.tcl.
 #
-# IMPORTANT: Vivado holds the FTDI cable open while the hardware target is
-# open. This script closes the target on exit -- if you skip that, the host
-# scan script cannot open the device. See docs/TROUBLESHOOTING.md.
+# RELEASING THE CABLE IS THE WHOLE POINT.
+# Vivado holds the FTDI channel while a hardware target is open, and it also
+# leaves hw_server / cs_server running in the background. Only one process can
+# own the channel, so if this script exits without closing down, the host scan
+# script fails with DEVICE_NOT_OPENED and the cause is not obvious.
 #
-# STATUS: not yet validated on hardware. Roadmap Phase 4.
+# Every exit path therefore runs `shutdown`, including error paths -- an early
+# version returned via `exit 1` on failure, left the cable held, and produced
+# exactly that confusing failure one command later.
 # ---------------------------------------------------------------------------
 
 set repo_root [file normalize [file join [file dirname [info script]] ..]]
 set default_bit [file join $repo_root vivado build TopLevel.runs impl_1 TopLevel.bit]
 set bitfile [expr {$argc > 0 ? [lindex $argv 0] : $default_bit}]
 
+# Release everything we opened. Each step is wrapped because the failure may
+# have happened before that resource existed, and a cleanup error must not mask
+# the original problem.
+proc shutdown {} {
+    catch {close_hw_target}
+    catch {disconnect_hw_server}
+    catch {close_hw_manager}
+}
+
+proc die {msg} {
+    puts "ERROR: $msg"
+    shutdown
+    exit 1
+}
+
 if {![file exists $bitfile]} {
     puts "ERROR: bitstream not found: $bitfile"
-    puts "       run scripts/build.tcl first, or pass the path with -tclargs"
+    puts "       run scripts\\build.bat <example_dir> first,"
+    puts "       or pass a path: scripts\\program.bat path\\to\\file.bit"
     exit 1
 }
 
@@ -30,36 +51,40 @@ open_hw_target
 
 set dev [lindex [get_hw_devices] 0]
 if {$dev eq ""} {
-    puts "ERROR: no JTAG device detected. Check power and cable."
-    close_hw_target
-    exit 1
+    die "no JTAG device detected. Check the board is powered and the cable seated."
 }
-puts "=== device: $dev"
-puts "=== idcode: [get_property REGISTER.IDCODE.BIT_STREAM $dev]"
+puts "=== device   : $dev"
 
 current_hw_device $dev
 refresh_hw_device -update_hw_probes false $dev
+
+# The device's IDCODE is deliberately NOT read here. The property that exposes
+# it differs between Vivado versions and is only populated after a refresh --
+# reading it too early is what broke the first version of this script. The host
+# driver reads and prints the IDCODE itself over its own JTAG connection, which
+# is both version-independent and a more meaningful check, since it exercises
+# the same path the vectors will use.
+
 set_property PROGRAM.FILE $bitfile $dev
 
 # Read it back. A path containing spaces is the recurring hazard in this flow
-# (see the note in build.tcl), and programming the wrong file -- or a truncated
-# path -- would otherwise be discovered as mysterious vector failures later.
+# (see the note in build.tcl); programming a truncated path would surface as
+# unexplained vector failures rather than an error.
 set assigned [get_property PROGRAM.FILE $dev]
 if {$assigned ne $bitfile} {
-    puts "ERROR: PROGRAM.FILE did not take the value given."
     puts "       wanted: $bitfile"
     puts "       got   : $assigned"
-    close_hw_target
-    exit 1
+    die "PROGRAM.FILE did not take the value given."
 }
 
-program_hw_devices $dev
+if {[catch {program_hw_devices $dev} err]} {
+    die "programming failed: $err"
+}
 refresh_hw_device $dev
 
-# Release the cable so the host script can claim the FTDI channel.
-close_hw_target
-disconnect_hw_server
-close_hw_manager
+shutdown
 
+puts ""
 puts "=== SUCCESS: device programmed, JTAG cable released"
+puts "Next: python host\\scanchain.py -t <tracefile> -o output.txt"
 exit 0

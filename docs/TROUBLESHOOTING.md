@@ -8,7 +8,13 @@ ftd2xx.ftd2xx.DeviceError: DEVICE_NOT_OPENED
 
 The FTDI device isn't reachable. In order of likelihood:
 
-1. **Vivado Hardware Manager still has the cable open.** Only one process can own the FTDI channel. Close the hardware target in Vivado (or close Vivado) before running the script.
+1. **A Vivado process still has the cable open.** Only one process can own the FTDI channel. This is the most common cause and it is not always the GUI — `hw_server.exe` and `cs_server.exe` are launched in the *background* by Hardware Manager and keep running after Vivado itself exits, especially if a programming script died partway through.
+
+   ```powershell
+   Get-Process hw_server, cs_server -ErrorAction SilentlyContinue | Stop-Process -Force
+   ```
+
+   `scripts/program.bat` does this automatically if programming fails, and `program.tcl` closes the target on every exit path. Older versions did not, which produced exactly this error one command after a failed programming run.
 2. **VCP driver is bound instead of D2XX.** On Windows the FTDI VCP driver claims the device as a COM port and `ftd2xx` can't open it. In Device Manager, find the interface, Properties → Advanced, and uncheck *Load VCP*. Then replug.
 3. **Wrong channel.** `ftd.open(0)` opens channel A. Some boards expose JTAG on channel B — try `ftd.open(1)`.
 4. **Board not powered or cable not seated.**

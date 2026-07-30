@@ -131,7 +131,62 @@ That is Vivado 2020.2's Webtalk telemetry step failing to quote a repository pat
 
 ---
 
-## 4. Host driver after the rewrite
+## 4. Synthesis and implementation
+
+**Tier: hardware-adjacent** (real toolchain, real device database; not yet on silicon). `scripts\build.bat examples\string_detector` — Vivado 2020.2, part **xc7a35tftg256-1**, 2026-07-30.
+
+```
+=== sources  : 7 files in the project, as expected
+Synthesis finished with 0 errors, 0 critical warnings and 0 warnings.
+INFO: [Project 1-461] DRC finished with 0 Errors
+route_design completed successfully   (0 failed nets, 0 node overlaps)
+write_bitstream completed successfully
+=== SUCCESS: bitstream at .../impl_1/TopLevel.bit
+```
+
+**First build of this project, ever.** `scripts/build.tcl` had never run and the emptied XDC had never been through synthesis.
+
+| Claim | Result |
+|---|---|
+| `build.tcl` works headlessly, end to end | **Yes** — project creation → synth → impl → bitstream, no GUI |
+| The emptied XDC is correct, not merely quiet | **Yes** — **no `UCIO-1` message at all**, DRC 0 errors. Issue #7 confirmed resolved |
+| `scan_core` and `TopLevel` synthesise | **Yes** — 0 errors, 0 critical warnings, **0 warnings** |
+| `BSCANE2` binds and is instantiated | **Yes** — 1 `BSCANE2` cell in the netlist, bound to `unisim_comp.v` |
+| The recovered detector sources synthesise | **Yes** — all three FSMs inferred and encoded |
+| The generated `DUT.vhd` synthesises | **Yes** — bound and elaborated cleanly |
+
+### 4.1 The netlist shows the D1 fix is physically present
+
+Reported cell usage:
+
+```
+BSCANE2  1     LUT2 5   LUT3 2   LUT4 5   LUT5 11   LUT6 6
+FDCE     1     FDRE 23
+```
+
+24 flip-flops, which accounts exactly: `data` (7) + `din` (7) + `datau` (1) + `io` (1) + `tdo` (1) = 17 in `scan_core`, plus 7 of FSM state in the detectors (2 + 2 + 3) = **24**.
+
+The interesting one is the lone **`FDCE`** — a flip-flop with an *asynchronous clear* — among 23 plain `FDRE`s. Nothing else in the design has an async reset. That is the `io` phase bit, and its clear is the `jtag_reset` path added for [issue #1](KNOWN_ISSUES.md).
+
+So the fix is not merely in the source and in simulation: it survived synthesis into a distinct primitive with the async clear intact. Had `RESET` been left `open`, `io` would have been an ordinary `FDRE` like everything else.
+
+### 4.2 Two warnings, one of them worth acting on
+
+**`[DRC CFGBVS-1]`** — missing `CFGBVS` / `CONFIG_VOLTAGE`. Cosmetic for a design with no I/O, but a legitimate device property. Now set correctly in `constraints.xdc` (`VCCO` / 3.3 V, matching the common Artix-7 boards) rather than ignored.
+
+**`[Timing 38-313] There are no user specified timing constraints`** — and with it `place_design is not in timing mode` and `the router will operate in resource-optimization mode`.
+
+This one matters more than it looks. **Place and route ran with no timing goal whatsoever**, which means the TDO launch-to-sample path — the entire subject of issue #2 — has never been analysed by the tools. It works, and simulation says the logic is right, but no number exists for how much margin there is.
+
+The divider sweep will measure that empirically. A `create_clock` on the `BSCANE2` TCK would let `report_timing` compute it directly. That is left as a commented, documented option in `constraints.xdc` rather than enabled, because the object to attach the clock to varies between Vivado versions and a wrong reference fails the build — it should be verified before being relied on.
+
+### 4.3 What this still does not prove
+
+The bitstream exists and is internally consistent. Nothing has been programmed, and no vector has crossed a cable.
+
+---
+
+## 5. Host driver after the rewrite
 
 **Tier: model** (offline tests; no hardware involved). `python3 host/test_scanchain.py` — 2026-07-29. **22 tests, 0 failures.**
 
@@ -143,11 +198,11 @@ That is Vivado 2020.2's Webtalk telemetry step failing to quote a repository pat
 | Ragged tracefiles are rejected with a line number (#4) | `test_rejects_ragged_input_width`, `test_rejects_ragged_output_width` |
 | The bundled tracefile still parses, and its 2 masked vectors are recognised | `test_bundled_tracefile_parses` |
 
-### 4.1 Why the equivalence tests are the important ones
+### 5.1 Why the equivalence tests are the important ones
 
 The MPSSE encoding and decoding are the only part of this project with hardware-tier evidence behind them. A rewrite that quietly changed a single byte would have destroyed the strongest result available and produced failures indistinguishable from an FPGA problem. Asserting byte-for-byte equivalence across the full width range converts "I was careful" into something checkable.
 
-### 4.2 Expected diff on the first hardware run
+### 5.2 Expected diff on the first hardware run
 
 `scanchain.py` reports fully masked vectors as `Skipped`; the original reported them as `Success`. Against `results/string_detector_output.txt` this predicts **exactly two changed lines** — the two `mask = 0` vectors at lines 1–2:
 
@@ -160,21 +215,21 @@ Those two lines are the visible confirmation that #3 is fixed. **Any other diffe
 
 ---
 
-## 5. Outstanding — hardware
+## 6. Outstanding — hardware
 
-Simulation is now complete. Everything remaining needs the board.
+Simulation and synthesis are complete. Everything remaining needs the board.
 
-### 5.1 Hardware
+### 6.1 Hardware
 
 | Check | Expected | Proves |
 |---|---|---|
-| `scripts/build.tcl` produces a bitstream | clean, no `UCIO-1` | The build script works at all — it is untested |
+| ~~`scripts/build.tcl` produces a bitstream~~ | ~~clean, no `UCIO-1`~~ | **Done — see section 4** |
 | `scripts/program.tcl` programs and releases the cable | device programmed | Same |
-| 46-vector run vs `results/string_detector_output.txt` | identical **except lines 1–2**, which become `Skipped` (see 4.2) | No behavioural drift from the `scan_core` split or the TDO edge move, and confirmation the mask fix took effect |
+| 46-vector run vs `results/string_detector_output.txt` | identical **except lines 1–2**, which become `Skipped` (see 5.2) | No behavioural drift from the `scan_core` split or the TDO edge move, and confirmation the mask fix took effect |
 | Interrupt mid-run, rerun **without reprogramming** | full pass | Issue #1. **Fails on the original code** — this is the fix's entire justification |
 | Divider sweep down from `0x3B`, before vs after the TDO fix | safe ceiling rises | Issue #2, and yields the one measurable throughput figure in the project |
 
-### 5.2 Deliberately out of scope for simulation
+### 6.2 Deliberately out of scope for simulation
 
 - **`BSCANE2` itself.** The testbench substitutes for it. If the primitive's CAPTURE/SHIFT/UPDATE pulse timing differs from what is modelled, only hardware will show it.
 - **Real timing.** Functional simulation with an idealised clock proves the launch edge is *logically* right. It says nothing about the maximum safe TCK frequency.
@@ -183,12 +238,16 @@ Simulation is now complete. Everything remaining needs the board.
 
 ---
 
-## 6. Summary of claims
+## 7. Summary of claims
 
 | Claim | Strongest evidence to date |
 |---|---|
 | The scan chain approach works on Artix-7 | **Hardware** — 4096/4096, twice |
 | The HDL compiles and elaborates | **Simulation** — Vivado 2020.2, clean |
+| The design synthesises, implements and produces a bitstream | **Toolchain** — 0 errors, 0 warnings, no `UCIO-1` |
+| Issue #7 (vestigial constraints) is resolved | **Toolchain** — no `UCIO-1` with the DRC no longer suppressed |
+| The `io` async reset survives into the netlist | **Toolchain** — a single `FDCE` among 23 `FDRE`s |
+| `new_lab.py`'s generated wrapper synthesises | **Toolchain** — bound and elaborated cleanly |
 | The `scan_core` split preserves behaviour | **Simulation** — exhaustive over 256 vectors. Hardware parity run outstanding |
 | Issue #1 (desync) was a real defect | **Model** — reproduced against the pre-fix design |
 | Issue #1 is fixed | **Simulation** — recovery via both TAP reset and deselect. Hardware interrupt test outstanding |
@@ -198,4 +257,4 @@ Simulation is now complete. Everything remaining needs the board.
 | Throughput improved | **No evidence.** Divider sweep not yet run |
 | Issues #5, #6, #7 | Open, unaddressed |
 
-The honest one-line status: *the protocol was already proven on hardware by its original author; five defects have been found and fixed — two in HDL, now confirmed in simulation, and three in the host, confirmed by offline tests. Nothing has yet been synthesised, programmed or rerun on the board.*
+The honest one-line status: *the protocol was already proven on hardware by its original author; six defects have been found and fixed — two in HDL confirmed in simulation and now in synthesis, three in the host confirmed by offline tests, and one constraints defect confirmed resolved by a clean DRC. A bitstream now builds from a single command. Nothing has yet been programmed or rerun on the board.*

@@ -8,7 +8,7 @@ Ordered by severity. Issues 1 and 2 can produce results that look fine but aren'
 
 **Severity: high.** Can invalidate an entire run with no visible error.
 
-> **STATUS: fixed, verified in simulation, pending hardware.** `BSCANE2.RESET` and `SEL` are wired into `scan_core`, which clears `io` asynchronously in Test-Logic-Reset and synchronously when the DR is deselected. Confirmed by tb_scan_core tests 2 and 3 under Vivado xsim 2020.2 — recovery works via both paths. Remaining bench test: interrupt a run, rerun **without reprogramming**, expect a full pass. Description below is of the original defect.
+> **STATUS: fixed, verified in simulation and synthesis, pending hardware.** `BSCANE2.RESET` and `SEL` are wired into `scan_core`, which clears `io` asynchronously in Test-Logic-Reset and synchronously when the DR is deselected. Confirmed by tb_scan_core tests 2 and 3 under Vivado xsim 2020.2 — recovery works via both paths. **Also confirmed in the synthesised netlist: `io` maps to the design's only `FDCE` (flip-flop with asynchronous clear) among 23 plain `FDRE`s, so the reset path survived into hardware primitives.** Remaining bench test: interrupt a run, rerun **without reprogramming**, expect a full pass. Description below is of the original defect.
 
 `io` selects input phase vs output phase and inverts on every Update-DR. It is initialised only by its signal declaration:
 
@@ -141,7 +141,7 @@ No such file exists anywhere in the project. `examples/alu/ALU.vhd` is an unrela
 
 **Severity: low, but it hides future errors.**
 
-> **STATUS: resolved.** `hdl/constraints.xdc` now contains only comments — a portless top level needs no I/O constraints. Both the dead `state_out` assignment and the `UCIO-1` DRC downgrade are gone, and the file explains why so nobody re-adds them. Description below is of the original state.
+> **STATUS: resolved and confirmed.** `hdl/constraints.xdc` no longer constrains anything — a portless top level needs no I/O constraints. Both the dead `state_out` assignment and the `UCIO-1` DRC downgrade are gone. **Confirmed by a full build (Vivado 2020.2): `DRC finished with 0 Errors` and no `UCIO-1` message at all, with the check no longer suppressed.** The file now also sets `CFGBVS`/`CONFIG_VOLTAGE` to silence a legitimate device-property warning, and documents an optional `create_clock` on TCK. Description below is of the original state.
 
 `hdl/constraints.xdc` contains exactly two lines:
 

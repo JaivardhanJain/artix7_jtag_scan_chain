@@ -4,7 +4,7 @@ Automated, vector-based functional testing of VHDL designs on a Xilinx Artix-7 F
 
 This is an Artix-7 port of an existing MAX 10 flow. The MAX 10 version used Altera's Virtual JTAG IP; this one uses Xilinx's `BSCANE2` primitive. See [docs/MIGRATION_MAX10_TO_ARTIX7.md](docs/MIGRATION_MAX10_TO_ARTIX7.md).
 
-> **Status: working prototype, mid-rework.** The protocol is proven — 4096/4096 vectors pass on the bundled passthrough test ([results/](results/)). Five defects have since been found and fixed: two in HDL, **verified in simulation** (Vivado xsim, 259 checks, 0 errors), and three in the host driver, verified by 22 offline tests. **Nothing has been rebuilt or rerun on the board yet.** See [Changes to the original implementation](#changes-to-the-original-implementation) and [docs/RESULTS.md](docs/RESULTS.md), which separates what is proven from what is argued.
+> **Status: working prototype, mid-rework.** The protocol is proven — 4096/4096 vectors pass on the bundled passthrough test ([results/](results/)). Six defects have since been found and fixed: two in HDL (verified in simulation *and* in the synthesised netlist), three in the host driver (22 offline tests), and one in the constraints (confirmed by a clean DRC). **A bitstream now builds from one command with 0 errors and 0 warnings** — but nothing has been programmed or rerun on the board yet. See [Changes to the original implementation](#changes-to-the-original-implementation) and [docs/RESULTS.md](docs/RESULTS.md), which separates what is proven from what is argued.
 
 ---
 
@@ -169,6 +169,7 @@ Bit order is **MSB-first as written**, i.e. the leftmost character is `input_vec
 | 3 | Mask column parsed but never applied | Don't-care outputs are compared as hard values. | **Fixed, offline-tested** |
 | 4 | Read parser reuses widths leaked from the write loop | Ragged tracefiles mis-parse instead of erroring. | **Fixed, offline-tested** |
 | 5 | `StringDetector.vhd` is not in this repo | `examples/string_detector` will not elaborate as-is. | **Resolved** — recovered and verified; kept local, `seq1011` added as a publishable substitute |
+| 7 | Vestigial `state_out` constraint and a suppressed `UCIO-1` DRC | Hides genuine unconstrained-port errors in future DUTs. | **Resolved, confirmed by a clean build** |
 
 Nine issues in total. Full write-ups and fixes: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md). How each was found, and which phase of the plan addresses it: [docs/ENGINEERING_LOG.md](docs/ENGINEERING_LOG.md). What has actually been measured, and how strong the evidence is: [docs/RESULTS.md](docs/RESULTS.md).
 

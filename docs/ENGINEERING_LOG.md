@@ -537,3 +537,87 @@ Two design quirks surfaced while writing the golden model, now documented in the
 | ALU tracefile matches its RTL | **Verified** — 256/256 against a transcription |
 | Generated wrappers compile | **Not verified** — no VHDL toolchain run against them |
 | Empty XDC still builds | **Not verified** — needs synthesis |
+
+---
+
+## Entry 011 — 2026-07-30 — First build: clean, and the netlist confirms the D1 fix
+
+`scripts\build.bat examples\string_detector`, Vivado 2020.2, part **xc7a35tftg256-1**.
+
+```
+=== sources  : 7 files in the project, as expected
+Synthesis finished with 0 errors, 0 critical warnings and 0 warnings.
+INFO: [Project 1-461] DRC finished with 0 Errors
+route_design completed successfully   (0 failed nets, 0 node overlaps)
+write_bitstream completed successfully
+```
+
+This is the **first time this project has ever been synthesised** from the scripted flow. `build.tcl` had never run, the emptied XDC had never been through DRC, and `new_lab.py`'s generated wrapper had never met a synthesiser.
+
+### 11.1 It took two attempts, and the failure was mine
+
+The first run died at `add_files -fileset constrs_1 -norecurse $xdc`:
+
+```
+ERROR: [Vivado 12-172] File or Directory 'Lab' does not exist
+```
+
+Vivado's `add_files` **list-parses** its file argument. The repository sits under `Wadhwani Lab Research`, so a bare string was split into four nonexistent filenames, the first being `Lab`. The two earlier `add_files` calls survived because they were already wrapped in `[list ...]`; the constraints one was not.
+
+Two things came out of the fix beyond the one-character-class change:
+
+- The `[list ...]` requirement is now stated in a comment at the call site, not just applied — the next person adding an `add_files` line needs to know *why*.
+- `build.tcl` now counts the project's sources against what it tried to add and, on mismatch, prints everything that did land. This is the same failure class as D6 — a project whose source list had silently drifted from the source tree — so it earns a permanent guard rather than a one-off patch. Its first successful run printed `sources : 7 files in the project, as expected`.
+
+`program.tcl` gained the analogous check: it reads `PROGRAM.FILE` back after setting it, since programming a truncated path would surface as unexplained vector failures rather than an error.
+
+### 11.2 D7 confirmed resolved, not just changed
+
+**No `UCIO-1` message anywhere in the log, and `DRC finished with 0 Errors`** — with the check no longer downgraded to a warning. That distinction is the whole point of the issue: the original XDC suppressed the error rather than removing the port that caused it. A clean DRC with the suppression gone is the only evidence that actually settles it.
+
+### 11.3 The netlist shows the D1 fix survived synthesis
+
+Reported cell usage:
+
+```
+BSCANE2 1   LUT2 5   LUT3 2   LUT4 5   LUT5 11   LUT6 6   FDCE 1   FDRE 23
+```
+
+24 flip-flops, and the count reconciles exactly: `data` (7) + `din` (7) + `datau` (1) + `io` (1) + `tdo` (1) = 17 in `scan_core`, plus 2 + 2 + 3 = 7 bits of FSM state in the three detectors.
+
+Worth pausing on the **single `FDCE`** among 23 `FDRE`s. `FDCE` is a flip-flop with an *asynchronous clear*; nothing else in this design has one. That is `io`, and its clear is the `jtag_reset` path added for D1.
+
+So the fix now has three independent confirmations at different levels: the source says it, simulation exercises it, and synthesis mapped it to a primitive that physically has the asynchronous clear. Had `RESET` been left `open` as in the original, `io` would have been an ordinary `FDRE` indistinguishable from the rest.
+
+### 11.4 A finding: the design has never been timed
+
+Three messages, easy to skim past:
+
+```
+WARNING: [Timing 38-313] There are no user specified timing constraints.
+WARNING: [Place 46-29] place_design is not in timing mode.
+INFO:    [Route 35-64] The router will operate in resource-optimization mode.
+```
+
+Place and route ran with **no timing goal at all**. Which means the TDO launch-to-sample path — the entire subject of D2 — has never been analysed by any tool. The logic is right (simulation says so) and it works on hardware (the baseline results say so), but *no number exists* for how much margin there is.
+
+This reframes the divider sweep slightly. It was planned as a throughput measurement; it is also the only source of information about that margin, because the toolchain has never computed it. A `create_clock` on the `BSCANE2` TCK output would let `report_timing` give the figure directly, which would be stronger evidence than an empirical pass/fail threshold.
+
+Left as a commented, documented option in `constraints.xdc` rather than enabled: the object a `create_clock` must attach to for a BSCAN primitive varies between Vivado versions, and getting it wrong fails the build. Turning a working build into a broken one to chase a nice-to-have number is the wrong trade at this point. It is recorded so it can be tried deliberately.
+
+### 11.5 Also fixed
+
+`CFGBVS` and `CONFIG_VOLTAGE` are now set in `constraints.xdc`. `write_bitstream` was emitting `[DRC CFGBVS-1]` for their absence. The design uses no I/O so it is cosmetic, but the warning is legitimate and setting it correctly is better than learning to ignore build warnings — which is how the `UCIO-1` suppression came to exist in the first place.
+
+Values are `VCCO` / 3.3 V, correct for the common Artix-7 boards. Flagged in the file as board-dependent, to be checked against a schematic rather than trusted from a comment.
+
+### 11.6 Status
+
+| | |
+|---|---|
+| Bitstream builds from one command | **Yes**, 0 errors, 0 warnings |
+| D7 resolved | **Confirmed** by clean DRC |
+| D1 reset path in the netlist | **Confirmed** by the `FDCE` |
+| Generated wrapper synthesises | **Confirmed** |
+| Anything programmed or run | **No** |
+| Timing margin on the TDO path | **Unknown, and never computed by any tool** |

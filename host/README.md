@@ -4,7 +4,7 @@
 |---|---|
 | `scanchain.py` | Current driver. Offline-tested, **not yet run against hardware**. |
 | `scan_bscane2.py` | The original. Kept unchanged as the reference until `scanchain.py` has a passing hardware run. |
-| `test_scanchain.py` | 22 offline tests. No board required. |
+| `test_scanchain.py` | 28 offline tests. No board required. |
 
 ```
 python host/scanchain.py -t examples/string_detector/TRACEFILE.txt -o output.txt
@@ -58,11 +58,32 @@ Everything above `class JtagDevice` is pure — no hardware, no I/O. That split 
 
 ## Testing
 
-`python3 host/test_scanchain.py` (or under `pytest`). Four groups:
+`python3 host/test_scanchain.py` (or under `pytest`). Six groups:
 
 - **Equivalence with the original** — encoding, decoding and read-byte counts, across widths 1–64.
 - **Read-count consistency** — the bytes the decoder consumes must equal the bytes the encoder told the device to send. A mismatch would desynchronise every later vector in the batch, silently.
 - **Tracefile parsing** — CRLF, comments, optional mask column, and rejection of ragged widths with a line number in the message.
 - **Mask handling** — whole-vector and per-bit masks, don't-cares.
+- **IDCODE decoding** — pinned to bytes captured from a real board, whose part is known independently. See below.
+- **Write types** — the encoders must return `bytes`; `ftd2xx` rejects a `bytearray` with an unhelpful `ctypes.ArgumentError`.
+
+## Two bugs the first hardware run found
+
+Both were in code paths that offline tests had never covered, which is exactly where they would be.
+
+**`encode_ir` returned a `bytearray`.** `ftd2xx.write()` accepts `bytes` only and rejects anything else with a bare `ctypes.ArgumentError: argument 2: wrong type` — no mention of the type it wanted, or which call. Now returns `bytes`, with a test asserting it.
+
+**The IDCODE decode applied one reversal instead of two.** Two are needed:
+
+- FTDI's read commands shift each incoming bit in at the *MSB* end, so every byte arrives bit-reversed.
+- The IDCODE shifts out LSB-first, so the first byte received is the least significant.
+
+Doing only the second returned `0xC0460BC9` for a part whose IDCODE is `0x0362D093`. That is the dangerous kind of wrong — it looks like a number, not like an error. The original `scan_bscane2.py` sidestepped it by printing raw hex and leaving the reader to interpret, so the bug is new to this rewrite.
+
+`test_decode_idcode_from_real_hardware` pins the fix to the actual bytes the board returned, cross-checked against the part Vivado independently reported. The driver now also names the part:
+
+```
+IDCODE: 0x0362D093  (xc7a35t)
+```
 
 What these tests do **not** cover: anything involving the FTDI device, the USB batching path, or whether the FPGA responds correctly. Those need hardware.

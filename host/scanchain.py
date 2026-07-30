@@ -36,7 +36,6 @@ and decoding without a board attached. Those are the parts where the bugs were.
 from __future__ import annotations
 
 import argparse
-import struct
 import sys
 import time
 from dataclasses import dataclass
@@ -339,13 +338,66 @@ def decode_output(buf: Sequence[int], offset: int, output_width: int) -> Tuple[s
     return last + byte_str, j
 
 
-def encode_ir(instruction: int) -> bytearray:
-    """Load a 6-bit instruction: 5 bits in Shift-IR, the 6th on the way out."""
+def encode_ir(instruction: int) -> bytes:
+    """
+    Load a 6-bit instruction: 5 bits in Shift-IR, the 6th on the way out.
+
+    Returns `bytes`, not `bytearray` -- ftd2xx's write() rejects a bytearray
+    with a bare `ctypes.ArgumentError: argument 2: wrong type`, which is an
+    unhelpful thing to discover with a board on the bench.
+    """
     out = bytearray()
     out += bytes([CMD_CLOCK_TMS_NOREAD, 0x03, 0x03])          # -> Shift-IR
     out += bytes([CMD_WRITE_BITS, 0x04, instruction & 0x1F])  # low 5 bits
     out += bytes([CMD_CLOCK_TMS_NOREAD, 0x00, (instruction >> 5) & 1])
-    return out
+    return bytes(out)
+
+
+def reverse_byte(b: int) -> int:
+    """Reverse the bit order within one byte."""
+    b = ((b & 0xF0) >> 4) | ((b & 0x0F) << 4)
+    b = ((b & 0xCC) >> 2) | ((b & 0x33) << 2)
+    b = ((b & 0xAA) >> 1) | ((b & 0x55) << 1)
+    return b
+
+
+def decode_idcode(raw: bytes) -> int:
+    """
+    Turn the 4 bytes read back from an IDCODE scan into the 32-bit value.
+
+    Two reversals are involved and it is easy to apply only one:
+
+      * FTDI's read commands shift each incoming bit in at the MSB end, so
+        after 8 bits the *first* bit received sits in bit 7. Each byte
+        therefore arrives bit-reversed and has to be flipped back.
+      * The IDCODE shifts out LSB-first, so the first byte received is the
+        least significant -- little-endian assembly.
+
+    Getting only the second right produces a plausible-looking but wrong
+    number: this returned 0xC0460BC9 for a part whose IDCODE is 0x0362D093.
+    Plausible-looking is the dangerous part -- it does not look like an error.
+
+    The original scan_bscane2.py sidestepped this by printing the raw hex and
+    leaving the reader to interpret it, so the bug is new to this rewrite.
+    """
+    value = 0
+    for i, byte in enumerate(raw):
+        value |= reverse_byte(byte) << (8 * i)
+    return value
+
+
+# IDCODE -> part, version nibble (bits 31:28) masked off.
+KNOWN_PARTS = {
+    0x0362D093: "xc7a35t",
+    0x0362C093: "xc7a50t",
+    0x03631093: "xc7a100t",
+    0x03636093: "xc7a200t",
+    0x0362F093: "xc7a75t",
+}
+
+
+def identify_part(idcode: int) -> Optional[str]:
+    return KNOWN_PARTS.get(idcode & 0x0FFFFFFF)
 
 
 # ---------------------------------------------------------------------------
@@ -420,7 +472,7 @@ class JtagDevice:
                 "Check power, cable and channel."
             )
         self.dev.write(bytes([CMD_CLOCK_TMS_NOREAD, 0x02, 0x03]))
-        return struct.unpack("<I", raw)[0]
+        return decode_idcode(raw)
 
     def select_user1(self) -> None:
         self.dev.write(encode_ir(IR_USER1))
@@ -578,7 +630,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     try:
         idcode = dev.read_idcode()
-        print(f"IDCODE: 0x{idcode:08X}")
+        part = identify_part(idcode)
+        print(f"IDCODE: 0x{idcode:08X}" + (f"  ({part})" if part else "  (part not in the known table)"))
         if idcode in (0x00000000, 0xFFFFFFFF):
             print("error: the TAP is not responding (IDCODE is all zeros or all "
                   "ones). See docs/TROUBLESHOOTING.md.", file=sys.stderr)

@@ -25,10 +25,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scanchain import (  # noqa: E402
     TracefileError,
     compare,
+    decode_idcode,
     decode_output,
     encode_input_scan,
+    encode_ir,
     encode_output_scan,
+    identify_part,
     parse_tracefile,
+    reverse_byte,
     split_bytes_bits,
 )
 
@@ -234,6 +238,74 @@ def test_split_bytes_bits_never_returns_zero_remainder():
         n_bytes, n_bits = split_bytes_bits(n)
         assert n_bits >= 1
         assert n_bytes * 8 + n_bits == n
+
+
+# ===========================================================================
+# IDCODE decoding -- regression tests from real hardware
+# ===========================================================================
+
+def test_decode_idcode_from_real_hardware():
+    """
+    Captured from an actual Artix-7 board, 2026-07-31.
+
+    The device returned these four bytes for an IDCODE scan, and the part is
+    known independently: Vivado enumerated it as xc7a35t, whose IDCODE is
+    0x0362D093.
+
+    The first version of decode_idcode applied only the little-endian
+    assembly and not the per-byte bit reversal, returning 0xC0460BC9 -- a
+    plausible-looking wrong number, which is the dangerous kind.
+    """
+    raw = bytes.fromhex("c90b46c0")
+    assert decode_idcode(raw) == 0x0362D093, \
+        f"got 0x{decode_idcode(raw):08X}, expected 0x0362D093 (xc7a35t)"
+    assert identify_part(decode_idcode(raw)) == "xc7a35t"
+
+
+def test_reverse_byte_is_an_involution():
+    for b in range(256):
+        assert reverse_byte(reverse_byte(b)) == b
+    assert reverse_byte(0b00000001) == 0b10000000
+    assert reverse_byte(0b11001001) == 0b10010011
+
+
+def test_idcode_lsb_is_always_one():
+    """IEEE 1149.1 requires bit 0 of IDCODE to be 1; a decode that loses it
+    is reversed or shifted."""
+    assert decode_idcode(bytes.fromhex("c90b46c0")) & 1 == 1
+
+
+def test_identify_part_ignores_the_version_nibble():
+    """Bits 31:28 are a silicon revision and vary between parts of the same
+    type, so they must not affect identification."""
+    assert identify_part(0x0362D093) == "xc7a35t"
+    assert identify_part(0x1362D093) == "xc7a35t"
+    assert identify_part(0xA362D093) == "xc7a35t"
+    assert identify_part(0xDEADBEEF) is None
+
+
+# ===========================================================================
+# Writes must be `bytes`, not `bytearray`
+# ===========================================================================
+
+def test_encoders_return_bytes_not_bytearray():
+    """
+    ftd2xx's write() rejects a bytearray with a bare
+    `ctypes.ArgumentError: argument 2: wrong type`, giving no hint about the
+    cause. encode_ir originally returned a bytearray and crashed the first
+    hardware run at exactly that line.
+    """
+    assert isinstance(encode_ir(0x02), bytes)
+    assert not isinstance(encode_ir(0x02), bytearray)
+
+
+def test_encode_ir_shape():
+    """6-bit IR: 5 bits shifted in Shift-IR, the 6th clocked with TMS."""
+    out = encode_ir(0x02)
+    assert out[0] == 0x4B and out[1] == 0x03 and out[2] == 0x03   # -> Shift-IR
+    assert out[3] == 0x1B and out[4] == 0x04 and out[5] == 0x02   # low 5 bits
+    assert out[6] == 0x4B and out[7] == 0x00 and out[8] == 0x00   # bit 5 = 0
+    assert encode_ir(0x22)[8] == 1, "bit 5 should be the 6th instruction bit"
 
 
 # ===========================================================================

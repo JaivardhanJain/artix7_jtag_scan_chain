@@ -38,22 +38,16 @@
 --       The host already issues a TAP reset before every run, so each run now
 --       self-synchronises.
 --
---   #2  tdo is now registered on the FALLING edge of tck rather than driven
---       combinationally from a rising-edge register. IEEE 1149.1 requires TDO
---       to change on the falling edge so the host can sample it safely on the
---       rising edge. The bit sequence on the wire is unchanged -- see the
---       timing note below -- so no host-side change is required.
+--   #2  REVERTED. tdo was briefly registered on the falling edge of tck, on the
+--       reasoning that IEEE 1149.1 requires TDO to change on the falling edge.
+--       On hardware that gave TDO stuck at 1 and 41 of 44 vectors failing.
 --
--- Falling-edge TDO timing, for reference:
---
---   rising  N     Capture-DR: datau <= dut_output       (datau(0) = d0)
---   falling N     tdo <= datau(0) = d0
---   rising  N+1   host samples tdo = d0  [stable, launched half a cycle ago]
---                 datau shifts           (datau(0) = d1)
---   falling N+1   tdo <= d1
---   rising  N+2   host samples tdo = d1
---
--- Same data, same order, no added latency -- only the launch edge moves.
+--       BSCANE2 is inside the TAP, not at a pin: it samples this port and
+--       drives the physical TDO pad itself, already performing the
+--       falling-edge launch the standard asks for. A second falling-edge
+--       register inserts half a cycle inside the TAP's own path and the data
+--       misses the primitive's sample point. The combinational assignment is
+--       correct here. See docs/RESULTS.md and KNOWN_ISSUES #2.
 --------------------------------------------------------------------------------
 
 library ieee;
@@ -150,16 +144,27 @@ begin
   end process shift_reg;
 
   ------------------------------------------------------------------------------
-  -- FIX #2: TDO launched on the falling edge of tck, per IEEE 1149.1, so the
-  -- host's rising-edge sample lands half a tck period after the launch instead
-  -- of on the same edge.
+  -- TDO is combinational from datau(0). This is the original design, restored.
+  --
+  -- KNOWN_ISSUES #2 argued that this violates IEEE 1149.1 -- which says TDO must
+  -- change on the falling edge of TCK so the host can sample it on the rising
+  -- edge -- and replaced it with a falling-edge register. On hardware that
+  -- produced TDO stuck at 1 and 41 of 44 vectors failing.
+  --
+  -- The reasoning was right about 1149.1 and wrong about where the requirement
+  -- is met. BSCANE2 is not a pin; it is inside the TAP. The primitive samples
+  -- this port and drives the physical TDO pad itself, already handling the
+  -- falling-edge launch the standard requires. Adding another falling-edge
+  -- register puts a half-cycle of delay *inside* the TAP's own path, so the
+  -- data misses the primitive's sample point entirely.
+  --
+  -- In other words the 1149.1 obligation was already satisfied one level up.
+  -- The original author's combinational assignment was correct, and its
+  -- 4096/4096 hardware record was evidence of that rather than of luck.
+  --
+  -- Do not "fix" this again without hardware to test on. See docs/RESULTS.md.
   ------------------------------------------------------------------------------
-  tdo_reg : process(tck)
-  begin
-    if falling_edge(tck) then
-      tdo <= datau(0);
-    end if;
-  end process tdo_reg;
+  tdo <= datau(0);
 
   dut_input <= din;
   io_phase  <= io;

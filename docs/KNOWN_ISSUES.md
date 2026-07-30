@@ -40,11 +40,19 @@ Then have the host issue a TAP reset at the start of every run — it already do
 
 ---
 
-## 2. TDO launched and sampled on the same clock edge
+## 2. ~~TDO launched and sampled on the same clock edge~~ — NOT A DEFECT
 
-**Severity: high.** Currently works, but by timing margin rather than by design.
-
-> **STATUS: fixed, verified in simulation, pending hardware.** `tdo` is registered on the falling edge of `tck` in `scan_core`. The host was deliberately left on its rising-edge `0x2C`/`0x2E` reads — moving the launch edge does not shift the data, confirmed by tb_scan_core test 1 (256 vectors, 0 errors) under Vivado xsim 2020.2, which samples tdo exactly as an MPSSE read does. Real timing margin is still unmeasured: sweep the divider on hardware. Description below is of the original defect.
+> **STATUS: withdrawn. This was a misdiagnosis, and the "fix" broke the design on hardware.**
+>
+> The falling-edge TDO register was built, passed the Python model, passed the VHDL testbench, synthesised cleanly — and on the first hardware run produced **TDO stuck at 1, 41 of 44 vectors failing**. Reverted to the original combinational assignment.
+>
+> **Why the reasoning was wrong.** IEEE 1149.1 does require TDO to change on the falling edge of TCK. But `BSCANE2` is not a pin — it sits *inside* the TAP. The primitive samples this port and drives the physical TDO pad itself, already performing the falling-edge launch the standard asks for. Adding a second falling-edge register inserts half a cycle inside the TAP's own path, and the data misses the primitive's sample point.
+>
+> The obligation was already satisfied one level up. **The original author's combinational assignment was correct**, and its 4096/4096 hardware record was evidence of that rather than of luck — which is exactly what the original write-up below dismissed.
+>
+> **Why simulation missed it.** `tb_scan_core` and `model_scan_core.py` both stand in for `BSCANE2`, and `BSCANE2`'s own TDO sampling is precisely what the change violated. Neither can distinguish a combinational `tdo` from a falling-edge-registered one; both produce the same value at the point they sample. The caveat written when the testbench was built — *"if the primitive's timing differs from what's modelled, only hardware will show it"* — turned out to name this exact failure.
+>
+> The analysis below is retained as a record of the mistake. Do not reinstate the change without hardware to test it on.
 
 `tdo <= datau(0)` is combinational, and `datau` is registered on the **rising** edge of TCK. The host reads with MPSSE opcodes `0x2C` and `0x2E`, both of which sample TDO on the **rising** edge. So the FPGA changes TDO on the same edge the host latches it.
 

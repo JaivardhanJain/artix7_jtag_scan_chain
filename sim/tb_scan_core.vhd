@@ -18,8 +18,13 @@
 -- -----
 --   1  Exhaustive scan       every input vector shifted in, result shifted out
 --                            and compared. Covers shift ordering, phase
---                            alternation, capture timing and the falling-edge
---                            TDO launch (KNOWN_ISSUES #2).
+--                            alternation and capture timing.
+--
+--                            It does NOT cover the TDO launch edge. This
+--                            testbench stands in for BSCANE2, and BSCANE2's own
+--                            TDO sampling is precisely what a wrong launch edge
+--                            violates. A falling-edge TDO register passed here
+--                            and failed on hardware -- see KNOWN_ISSUES #2.
 --   2  Desync recovery       abandon a vector halfway, pulse jtag_reset, then
 --                            run a normal vector. Fails on the ORIGINAL code,
 --                            passes with the reset path (KNOWN_ISSUES #1).

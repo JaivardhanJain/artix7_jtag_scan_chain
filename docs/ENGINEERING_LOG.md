@@ -621,3 +621,62 @@ Values are `VCCO` / 3.3 V, correct for the common Artix-7 boards. Flagged in the
 | Generated wrapper synthesises | **Confirmed** |
 | Anything programmed or run | **No** |
 | Timing margin on the TDO path | **Unknown, and never computed by any tool** |
+
+---
+
+## Entry 012 — 2026-07-31 — First hardware run fails. D2 was a misdiagnosis.
+
+```
+IDCODE: 0x0362D093  (xc7a35t)
+46 vectors: 3 passed, 41 failed, 2 skipped (masked)
+```
+
+Every vector read back `1`. The three "passes" are only the vectors whose expected value happened to be `1`. **TDO is stuck at 1.**
+
+### 12.1 What that pattern rules out
+
+A stuck output is diagnostically much better than scattered failures.
+
+- **Not a bit-order or width error.** Those produce wrong-but-varying data. This is constant.
+- **Not the host.** The wire protocol is pinned byte-for-byte against the original across widths 1–64, and the IDCODE read — over the same cable, same driver — returned the correct value for the correct part.
+- **Not the desync fix.** `io` failing would produce inputs and outputs swapping, not a constant.
+- **Not the build.** Synthesis was clean, DRC clean, the netlist accounted for every flip-flop.
+
+That leaves the one thing changed in the TDO path: the falling-edge register added for D2.
+
+### 12.2 The reasoning error
+
+D2 said: TDO is launched on the rising edge and the host samples on the rising edge, so launch and sample coincide; IEEE 1149.1 requires TDO to change on the falling edge; therefore register it on the falling edge.
+
+Every clause is true. The conclusion does not follow, because of an assumption never stated: **that `scan_core.tdo` is the TDO the standard is talking about.**
+
+It is not. `BSCANE2` is inside the TAP, not at a pin. The primitive samples this port and drives the physical TDO pad itself, performing the falling-edge launch the standard requires. The obligation was already met one level up. Adding a second falling-edge register put half a cycle of delay *inside* the TAP's own path, so the data missed the primitive's sample point.
+
+**The original combinational assignment was correct.** Its 4096/4096 hardware record was evidence of correctness — and the original D2 write-up explicitly dismissed that evidence as "timing margin, not design". That was the actual mistake: treating a passing hardware result as luck because it disagreed with a spec argument, rather than treating it as data that the spec argument had to explain.
+
+### 12.3 Why every layer of verification passed it
+
+This is the part worth keeping.
+
+| Layer | Result | Why it could not catch this |
+|---|---|---|
+| `model_scan_core.py` | pass | Substitutes for BSCANE2; cannot distinguish a combinational `tdo` from a registered one |
+| `tb_scan_core.vhd` | pass, 259 checks | Same — it *is* the stand-in for the primitive whose timing was violated |
+| Synthesis | clean, 0 warnings | A falling-edge flip-flop is perfectly legal |
+| Netlist inspection | consistent | Correctly showed the register I asked for |
+
+Every one of them tested the design against my model of `BSCANE2`. None could test it against `BSCANE2`. The gap was known and written down when the testbench was built — *"if the primitive's CAPTURE/SHIFT/UPDATE pulse timing differs from what's modelled here, only hardware will show it"* — and it named this failure in advance.
+
+The lesson is not "test on hardware sooner". It is narrower and more useful: **a testbench that substitutes for a component cannot validate that component's contract.** Everything `scan_core` does internally was well covered. Everything at its boundary with the primitive was, structurally, untestable by those means — and both defects it was supposed to be protecting lived exactly there.
+
+### 12.4 What this does not undermine
+
+D1 is untouched and stands: the `io` reset path is independent of the TDO path, verified in simulation, and visible in the netlist as the design's only `FDCE`. The host fixes (D3, D4, D8) are unaffected. D5, D6 and D7 are closed. The IDCODE decode is confirmed correct against the real board.
+
+The `scan_core` split also stands, and is worth noting: it made this revert a three-line change to one file rather than surgery on a top level tangled with a vendor primitive.
+
+### 12.5 Status
+
+Reverted to `tdo <= datau(0)`. **This is a hypothesis with strong support, not a confirmed diagnosis** — the stuck-at-1 pattern and the single-variable change point at it, but the decisive evidence is a rebuild and a rerun. If the parity run passes after this revert, the diagnosis is confirmed. If it does not, the cause is elsewhere and this entry needs rewriting.
+
+D2 is recorded as **withdrawn**, with the original analysis kept in `KNOWN_ISSUES.md` as a record of the mistake. Deleting it would hide the most instructive thing in the project.

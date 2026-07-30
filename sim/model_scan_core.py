@@ -50,7 +50,7 @@ class ScanCore:
         self.datau = [0] * NUM_OUT   # output shift register
         self.din = [0] * NUM_IN      # latched DUT input
         self.io = 0                  # phase bit
-        self.tdo = 0                 # falling-edge TDO register
+        self.tdo = 0                 # tdo tracks datau[0] combinationally
 
     def dut_output(self):
         return dut_model(self.din)
@@ -79,6 +79,16 @@ class ScanCore:
                 self.datau = [self.datau[k + 1] for k in range(NUM_OUT - 1)] + [0]
 
     def falling(self):
+        # tdo is combinational from datau(0) in the RTL. Sampling it here, at
+        # the end of the cycle, is equivalent for a driver that reads before
+        # the next rising edge.
+        #
+        # NOTE: this model CANNOT distinguish a combinational tdo from a
+        # falling-edge-registered one -- both produce the same value at this
+        # point. Neither can the VHDL testbench. That blind spot is why the
+        # falling-edge "fix" for KNOWN_ISSUES #2 passed both and still failed
+        # on hardware: BSCANE2's own TDO sampling is the thing being violated,
+        # and BSCANE2 is exactly what these substitute for.
         self.tdo = self.datau[0]
 
 

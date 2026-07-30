@@ -4,7 +4,7 @@ Automated, vector-based functional testing of VHDL designs on a Xilinx Artix-7 F
 
 This is an Artix-7 port of an existing MAX 10 flow. The MAX 10 version used Altera's Virtual JTAG IP; this one uses Xilinx's `BSCANE2` primitive. See [docs/MIGRATION_MAX10_TO_ARTIX7.md](docs/MIGRATION_MAX10_TO_ARTIX7.md).
 
-> **Status: working prototype, mid-rework.** The protocol is proven — 4096/4096 vectors pass on the bundled passthrough test ([results/](results/)). Six defects have since been found and fixed: two in HDL (verified in simulation *and* in the synthesised netlist), three in the host driver (22 offline tests), and one in the constraints (confirmed by a clean DRC). **A bitstream now builds from one command with 0 errors and 0 warnings** — but nothing has been programmed or rerun on the board yet. See [Changes to the original implementation](#changes-to-the-original-implementation) and [docs/RESULTS.md](docs/RESULTS.md), which separates what is proven from what is argued.
+> **Status: working prototype, mid-rework.** The protocol is proven — 4096/4096 vectors pass on the bundled passthrough test ([results/](results/)). Five defects have since been found and fixed, and **one supposed defect turned out to be a misdiagnosis** — the fix passed simulation and broke the board, and is documented as a mistake rather than quietly deleted ([#2](docs/KNOWN_ISSUES.md)). A bitstream builds from one command; the board programs; the first hardware run is still failing. See [Changes to the original implementation](#changes-to-the-original-implementation) and [docs/RESULTS.md](docs/RESULTS.md), which separates what is proven from what is argued.
 
 ---
 
@@ -165,7 +165,7 @@ Bit order is **MSB-first as written**, i.e. the leftmost character is `input_vec
 | # | Issue | Impact | Status |
 |---|---|---|---|
 | 1 | `io` phase bit has no reset path (`BSCANE2.RESET` left open) | A crashed script permanently desyncs host and FPGA. Every later result is wrong. | **Fixed, simulation-verified** |
-| 2 | TDO launched and sampled on the same clock edge | Works at the current divider by timing luck, not design. | **Fixed, simulation-verified** |
+| 2 | ~~TDO launched and sampled on the same clock edge~~ | — | **Withdrawn — misdiagnosis.** The fix passed simulation and broke the board. See [KNOWN_ISSUES #2](docs/KNOWN_ISSUES.md) |
 | 3 | Mask column parsed but never applied | Don't-care outputs are compared as hard values. | **Fixed, offline-tested** |
 | 4 | Read parser reuses widths leaked from the write loop | Ragged tracefiles mis-parse instead of erroring. | **Fixed, offline-tested** |
 | 5 | `StringDetector.vhd` is not in this repo | `examples/string_detector` will not elaborate as-is. | **Resolved** — recovered and verified; kept local, `seq1011` added as a publishable substitute |

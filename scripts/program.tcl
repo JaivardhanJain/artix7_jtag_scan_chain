@@ -84,6 +84,21 @@ refresh_hw_device $dev
 
 shutdown
 
+# The device is programmed and the cable is released. Say so NOW, before the
+# bookkeeping below.
+#
+# An earlier version printed this at the very end, after writing the manifest.
+# A Tcl parse error in that manifest block aborted the script -- so the board
+# was correctly programmed, and program.bat still reported PROGRAMMING FAILED
+# with a list of causes that were all wrong. The user reprogrammed a board
+# that did not need reprogramming.
+#
+# Nothing after this line may change the outcome. The manifest is a
+# convenience for the host's width check; failing to write it is a warning,
+# never a failure.
+puts ""
+puts "=== SUCCESS: device programmed, JTAG cable released"
+
 # --- Record what is now on the device ------------------------------------
 # build.tcl writes a manifest describing what the bitstream expects. Copy it
 # to a well-known path once the device has actually been programmed, so the
@@ -95,20 +110,44 @@ set dst_manifest [file join $repo_root .programmed.json]
 if {[file exists $src_manifest]} {
     # Assemble first, write once -- a partial write leaves invalid JSON, which
     # silently disables the host's check rather than reporting a problem.
+    #
+    # WARNING TO FUTURE EDITORS. Tcl counts braces when it parses a braced
+    # block, and it does so without respecting quotes OR comments. A closing
+    # brace character written literally anywhere in this block -- in a string,
+    # or even in a comment explaining the problem -- ends the block early, and
+    # Vivado reports "extra characters after close-brace" at parse time.
+    #
+    # This bit twice on 2026-08-11. First in the JSON assembly, which needs a
+    # closing brace as data. Then again in the comment written to explain the
+    # first one, which quoted the character.
+    #
+    # So: the character is produced from its octal escape below and never
+    # appears literally, and no comment in this block may contain one.
+    #
+    # It matters because a parse error cannot be caught, and this code runs
+    # after the board has already been programmed -- the first version left
+    # the device correctly programmed while the script reported failure.
+    set close_brace "\175"
+
+    set when "unknown"
+    catch {set when [clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S}]}
+
+    set doc ""
     if {[catch {
         set in [open $src_manifest r]; set body [read $in]; close $in
         set body [string trimright $body]
         set body [string range $body 0 end-1]        ;# drop closing brace
         set body [string trimright $body]
-
-        set when "unknown"
-        catch {set when [clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S}]}
-
         set doc "$body,\n"
         append doc "  \"bitstream\": \"[string map {\\ /} $bitfile]\",\n"
         append doc "  \"programmed\": \"$when\"\n"
-        append doc "}\n"
+        append doc "$close_brace\n"
+    } err]} {
+        puts "WARNING: could not assemble $dst_manifest: $err"
+        set doc ""
+    }
 
+    if {$doc ne "" && [catch {
         set out [open $dst_manifest w]
         puts -nonewline $out $doc
         close $out
@@ -124,7 +163,5 @@ if {[file exists $src_manifest]} {
     catch {file delete $dst_manifest}
 }
 
-puts ""
-puts "=== SUCCESS: device programmed, JTAG cable released"
 puts "Next: python host\\scanchain.py -t <tracefile> -o output.txt"
 exit 0

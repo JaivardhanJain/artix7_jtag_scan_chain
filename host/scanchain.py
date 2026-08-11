@@ -146,6 +146,13 @@ def check_build(manifest: Optional[Dict[str, Any]],
     A width mismatch is fatal rather than a warning. There is no case where
     continuing produces a meaningful result.
     """
+    Limitation worth knowing: this compares against a *record* of what was
+    programmed, not against the silicon. The FPGA's configuration is volatile,
+    so powering the board off leaves this manifest claiming a design is loaded
+    when the chip is blank. That case is not silent -- nothing drives TDO, so
+    the constant-TDO check in print_summary fires -- but this check will not
+    catch it.
+    """
     if not manifest:
         return None
     want_in = manifest.get("number_of_inputs")
@@ -734,9 +741,15 @@ def print_summary(results: List[Result], elapsed: float, max_failures: int = 20)
             print("     This is one fault, not "
                   f"{len(failed)} -- the scan chain returned nothing.")
             if set(stuck) == {"1"}:
-                print("     Stuck at 1: the host never selected USER1, so the")
-                print("     user register was never in the scan path and TDO")
-                print("     floated. Host-side fault. See docs/KNOWN_ISSUES.md.")
+                print("     Stuck at 1: nothing is driving TDO. Two causes,")
+                print("     in order of likelihood:")
+                print("       1. No design is loaded. The FPGA's configuration")
+                print("          is volatile -- powering the board off wipes")
+                print("          it. Rerun scripts\\program.bat.")
+                print("       2. The host never selected USER1, so the user")
+                print("          register was never in the scan path.")
+                print("     The IDCODE read succeeds in both cases, because it")
+                print("     uses the TAP itself rather than your design.")
             elif set(stuck) == {"0"}:
                 print("     Stuck at 0: USER1 is selected but the output")
                 print("     register is never loaded -- the phase-bit desync")

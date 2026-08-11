@@ -1399,3 +1399,87 @@ Not in the deck's seven: **#4** (read parser reused widths leaked from the write
 - A missing manifest is deliberately **not** an error: programming through the Vivado GUI is a legitimate workflow.
 - `--no-build-check` overrides it.
 - Honest about its limits: it compares against a record, not the silicon — so it catches a stale bitstream, which is the mistake that actually happens, and not a power cycle.
+
+---
+
+## Entry 023 — 2026-08-11 — What a stranger with a clone can actually do
+
+Prompted by a fair question: could someone clone this repository, follow the instructions with their own design and their own tracefile, and reproduce these results? Tested rather than assumed.
+
+### 23.1 The experiment
+
+Fresh clone into an empty directory. A design that has never existed in this repository — a 4-bit comparator, `X`/`Y` in, `gt`/`eq`/`lt` out — dropped into `examples/mydesign/`. A tracefile generated from an independent golden model. Then the documented flow, as far as it can go without a board.
+
+| Step | Result |
+|---|---|
+| `new_lab.py --patch-toplevel` | Derived `X` → bits 7:4, `Y` → 3:0, `gt`/`eq`/`lt` → 2/1/0. Wrote `DUT.vhd`, patched the constants to 8/3 |
+| `scanchain.py --dry-run` | 256 vectors, 8 in / 3 out, valid |
+| `build.tcl` (Vivado stubbed) | Accepted the new example directory, globbed both sources, wrote a manifest with the right widths |
+| Shipped test suites | 41 + 19 tests, 264 model checks — all pass in the clone |
+
+**Nothing required hand-editing.** The plug-and-play claim holds for a design nobody here has seen.
+
+### 23.2 What the generator actually tolerates
+
+Ten formatting variants of the same entity. Note this reads the **DUT's** entity, not `TopLevel.vhd` — a distinction worth stating because the question is usually asked about the top level.
+
+| Variant | Result |
+|---|---|
+| One port per line, spaced | OK |
+| Entire entity on one line | OK |
+| Shared declaration — `A, B : in std_logic_vector(3 downto 0)` | OK |
+| `UPPERCASE KEYWORDS` | OK |
+| Ascending range — `(0 to 3)` | OK |
+| Inline `--` comments between ports | OK |
+| No spaces at all — `din:in std_logic_vector(3 downto 0)` | OK |
+| `generic` clause before `port` | OK |
+| Clock and reset detected by name | OK — placed at bits 0 and 1 |
+| An `inout` port | **Rejected, by design** |
+
+It strips comments, normalises whitespace and case, and parses ranges in both directions. The `inout` rejection is deliberate and carries its reason: *"port ['bidir'] is 'inout'. The scan chain carries input..."* — a bidirectional port cannot work in a scheme with separate input and output registers, and failing loudly at generation is better than a wrapper that misbehaves on the board.
+
+### 23.3 What the tracefile parser actually tolerates
+
+Format is fixed — `input expected [mask]`, MSB-first as written — but presentation is not.
+
+**Accepted:** two or three columns; arbitrary whitespace; tabs; CRLF; blank lines; `#` comments; a single-character mask meaning all bits; `x` and `-` don't-cares in the expected column.
+
+**Rejected, each naming the offending line:**
+
+```
+line 2: input is 5 bits but line 1 set the width to 4
+line 2: expected-output is 3 bits but line 1 set the width to 2
+line 1: mask is 3 bits but the output is 2 bits
+line 1: expected at least 2 columns (input expected [mask]), got 1
+line 1: input contains ['a']; expected only 0/1
+```
+
+That validation is the fix for issue #4. The original parser took its widths from whatever the previous iteration of the *write* loop had left in scope, so a ragged file decoded at the wrong width and produced plausible wrong values rather than an error.
+
+### 23.4 What is genuinely rigid
+
+- **Bit order is MSB-first as written.** The leftmost character is `input_vector(N-1)`. Reverse it and every vector fails with no indication why. This is why the generator writes the mapping into a header comment in `DUT.vhd` — it cannot be recovered from the tracefile afterwards.
+- **The widths must match the design on the board.** Now enforced by the manifest guard rather than trusted (entry 019).
+
+### 23.5 What a stranger still needs, beyond the repository
+
+| | |
+|---|---|
+| An Artix-7 board with FTDI JTAG | Default part `xc7a35tftg256-1`; override as `build.bat <example> <part>` |
+| Vivado | Developed and tested on 2020.2 |
+| Python 3.8+ | `pip install -r host/requirements.txt` |
+| The FTDI **D2XX** driver | On Windows the VCP driver claims the device first and must be unchecked |
+
+All four are documented — part override in `scripts/README.md`, channel in `host/README.md`, D2XX/VCP in the README requirements and `TROUBLESHOOTING.md`.
+
+### 23.6 Three things the repository cannot fix for them
+
+**Their design has to compile.** The toy comparator used `unsigned()` without importing `numeric_std`, and `new_lab.py` cheerfully generated a wrapper for it. The generator reads the entity's port list, not the architecture, so a broken design passes every offline check and fails minutes later in Vivado. Not the generator's job — but it is the first wall a newcomer hits, and worth stating rather than letting them discover it.
+
+**A clocked design needs the clock exposed as an input bit**, with two vectors per clock cycle, and a Mealy output differs between the two. Documented in `examples/README.md` and `seq1011/README.md`, where it cost 65 wrong vectors before being caught. It is a conceptual step, not a mechanical one.
+
+**Their tracefile is the weak link.** Everything shipped here is verified; a hand-written tracefile is not. Generating it from a golden model is the advice that actually carries weight, and both `seq1011` and `bcd_adder` ship a `gen_tracefile.py` as a worked example.
+
+### 23.7 The honest summary
+
+Yes — with a board, Vivado, Python and the D2XX driver, a clone reproduces this flow on a new design without editing a file. The two most likely first-run failures for someone else are the default part and the default FTDI channel, both one flag away and both documented.

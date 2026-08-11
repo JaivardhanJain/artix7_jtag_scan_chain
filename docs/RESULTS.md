@@ -474,6 +474,54 @@ A misaligned run is not a dead one — TDO does vary — so the one-fault diagno
 
 ---
 
+## 5E. The old flow, replayed on lab 4 — 2026-08-11
+
+**Tier: hardware.** The original files, run end to end for comparison: `Artix7test_2020` (the inherited Vivado project), the original `Toplevel.vhd` with `RESET => open` / `SEL => open`, the lab author's hand-written `DUT.vhd`, and `scan_bscane2.py` — byte-identical to the copy preserved in `host/`. Nothing from this repository was involved.
+
+The point was not to show the old flow fails. It does not: it produces a working bitstream and correct results. The point is what it costs to get there, and what it does not tell you.
+
+### 5E.1 What went wrong before anything worked
+
+Every one of these was hit by someone who has been working on this harness for three weeks, following a written procedure.
+
+| Obstacle | What happened |
+|---|---|
+| **Three `.xpr` files, one correct** | Opening `Lab4_fri.xpr` fails synthesis: it contains `TB_BCDAdder.vhdl`, a testbench that reads `TRACEFILE.txt` at elaboration. `[Synth 8-3302] unable to open file 'TRACEFILE.txt'`. A full synthesis run before it fails. |
+| **`UCIO-1` blocks the bitstream** | The original `TopLevel` has a real `state_out` port with no pin constraints. `constraints.xdc` tries to suppress the DRC, but as Vivado's own message says, that does not apply to `write_bitstream` under the Runs infrastructure. **The inherited project does not build out of the box in the standard GUI flow.** |
+| **Workaround required** | `open_run impl_1` → `set_property SEVERITY {Warning} [get_drc_checks UCIO-1]` → `write_bitstream`, interactively. |
+| **Bitstream path** | `write_bitstream TopLevel.bit` writes to Vivado's working directory, not the project directory. |
+| **`DEVICE_NOT_OPENED`, twice** | Vivado held the FTDI channel. The original driver reports this as a bare `ftd2xx` traceback with no explanation — issue #8. |
+| **The wrong tracefile is the nearest one** | The procedure says "navigate to the scan chain files". The `TRACEFILE.txt` sitting in that folder is **8 in / 6 out, 216 vectors** — a different lab. The board was 8 in / 5 out. Nothing in the old flow would have caught it. |
+
+### 5E.2 The netlist shows the desync defect
+
+Synthesis of the original design completed with 0 errors and 0 warnings, and reported:
+
+```
+FDRE   22        <- no FDCE anywhere
+OBUF    5        <- state_out, the debug port with no pins
+```
+
+Compare §4.1, where this repository's build reports **`FDCE 1, FDRE 23`**. That single flip-flop with asynchronous clear is the phase-bit reset path of issue #1. Its absence here is the defect visible in the synthesised netlist of the original design — not argued from source, and not a difference in the DUT, since both builds target the same BCD adder.
+
+### 5E.3 What the two flows cost
+
+| | Old flow | New flow |
+|---|---|---|
+| Wrapper written by | hand | `new_lab.py` |
+| Width constants | hand-edited | patched automatically |
+| Project selection | 3 `.xpr` files, 1 correct | none to choose |
+| Build | GUI, + DRC workaround | `build.bat <example>` |
+| Cable release | manual, in the right order | automatic on every exit path |
+| Tracefile/bitstream agreement | unchecked | refused on mismatch |
+| Result summary | none — 100+ lines to audit by eye | pass/fail counts, exit code |
+| Commands | — | 4 |
+| GUI interactions | several | 0 |
+
+Both produce a correct bitstream and correct results for lab 4. The difference is entirely in what can go wrong on the way, and in whether the output tells you it did.
+
+---
+
 ## 6. Outstanding — hardware
 
 Simulation and synthesis are complete. Everything remaining needs the board.

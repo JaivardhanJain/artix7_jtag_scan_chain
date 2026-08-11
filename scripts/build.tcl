@@ -140,17 +140,33 @@ if {$n_in eq "" || $n_out eq ""} {
     puts "         The host will not be able to check the tracefile against"
     puts "         this bitstream."
 } else {
+    # Build the whole document first, then write it in one call. An earlier
+    # version wrote line by line, so a failure partway through (clock format
+    # needs the msgcat package, which is not present in every Tcl build) left
+    # a truncated file that parsed as invalid JSON -- and an unreadable
+    # manifest silently disables the host's check. Found by walking this
+    # script under a bare tclsh.
+    set when "unknown"
+    catch {set when [clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S}]}
+
+    set doc "{\n"
+    append doc "  \"example\": \"$example_dir\",\n"
+    append doc "  \"part\": \"$part\",\n"
+    append doc "  \"number_of_inputs\": $n_in,\n"
+    append doc "  \"number_of_outputs\": $n_out,\n"
+    append doc "  \"built\": \"$when\"\n"
+    append doc "}\n"
+
     set manifest [file join $build_dir build_info.json]
-    set fh [open $manifest w]
-    puts $fh "{"
-    puts $fh "  \"example\": \"$example_dir\","
-    puts $fh "  \"part\": \"$part\","
-    puts $fh "  \"number_of_inputs\": $n_in,"
-    puts $fh "  \"number_of_outputs\": $n_out,"
-    puts $fh "  \"built\": \"[clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S}]\""
-    puts $fh "}"
-    close $fh
-    puts "=== manifest : $n_in in / $n_out out -> $manifest"
+    if {[catch {
+        set fh [open $manifest w]
+        puts -nonewline $fh $doc
+        close $fh
+    } err]} {
+        puts "WARNING: could not write $manifest: $err"
+    } else {
+        puts "=== manifest : $n_in in / $n_out out -> $manifest"
+    }
 }
 
 puts "=== SUCCESS: bitstream at $bit"

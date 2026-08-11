@@ -93,16 +93,24 @@ shutdown
 set src_manifest [file join $repo_root vivado build build_info.json]
 set dst_manifest [file join $repo_root .programmed.json]
 if {[file exists $src_manifest]} {
+    # Assemble first, write once -- a partial write leaves invalid JSON, which
+    # silently disables the host's check rather than reporting a problem.
     if {[catch {
-        set in  [open $src_manifest r]; set body [read $in]; close $in
-        # splice the bitstream path and program time into the copy
+        set in [open $src_manifest r]; set body [read $in]; close $in
         set body [string trimright $body]
         set body [string range $body 0 end-1]        ;# drop closing brace
+        set body [string trimright $body]
+
+        set when "unknown"
+        catch {set when [clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S}]}
+
+        set doc "$body,\n"
+        append doc "  \"bitstream\": \"[string map {\\ /} $bitfile]\",\n"
+        append doc "  \"programmed\": \"$when\"\n"
+        append doc "}\n"
+
         set out [open $dst_manifest w]
-        puts $out "$body,"
-        puts $out "  \"bitstream\": \"[string map {\\ /} $bitfile]\","
-        puts $out "  \"programmed\": \"[clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S}]\""
-        puts $out "}"
+        puts -nonewline $out $doc
         close $out
         puts "=== recorded : $dst_manifest"
     } err]} {

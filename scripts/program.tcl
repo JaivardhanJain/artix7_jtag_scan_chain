@@ -84,6 +84,38 @@ refresh_hw_device $dev
 
 shutdown
 
+# --- Record what is now on the device ------------------------------------
+# build.tcl writes a manifest describing what the bitstream expects. Copy it
+# to a well-known path once the device has actually been programmed, so the
+# host driver can refuse a tracefile whose widths disagree with the design
+# currently loaded. The build manifest alone is not enough -- it describes the
+# most recent *build*, which is not necessarily what is on the chip.
+set src_manifest [file join $repo_root vivado build build_info.json]
+set dst_manifest [file join $repo_root .programmed.json]
+if {[file exists $src_manifest]} {
+    if {[catch {
+        set in  [open $src_manifest r]; set body [read $in]; close $in
+        # splice the bitstream path and program time into the copy
+        set body [string trimright $body]
+        set body [string range $body 0 end-1]        ;# drop closing brace
+        set out [open $dst_manifest w]
+        puts $out "$body,"
+        puts $out "  \"bitstream\": \"[string map {\\ /} $bitfile]\","
+        puts $out "  \"programmed\": \"[clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S}]\""
+        puts $out "}"
+        close $out
+        puts "=== recorded : $dst_manifest"
+    } err]} {
+        puts "WARNING: could not write $dst_manifest: $err"
+        puts "         The host will not be able to check tracefile widths."
+    }
+} else {
+    puts "WARNING: no build manifest found at $src_manifest."
+    puts "         Programming a bitstream this script did not build; the host"
+    puts "         cannot check tracefile widths against it."
+    catch {file delete $dst_manifest}
+}
+
 puts ""
 puts "=== SUCCESS: device programmed, JTAG cable released"
 puts "Next: python host\\scanchain.py -t <tracefile> -o output.txt"

@@ -112,5 +112,46 @@ if {[get_property PROGRESS [get_runs impl_1]] != "100%"} {
 }
 
 set bit [file join $build_dir TopLevel.runs impl_1 TopLevel.bit]
+
+# --- Manifest -------------------------------------------------------------
+# Record what this bitstream expects, so the host can refuse a tracefile that
+# does not match it.
+#
+# Without this there is nothing anywhere that ties a bitstream to a tracefile.
+# Build one example, run another's vectors, and every scan is misaligned --
+# the host takes its widths purely from the tracefile and the FPGA has no way
+# to object. The result is not an error but a screen of plausible-looking
+# failures, which is the worst outcome this project keeps running into.
+set toplevel [file join $repo_root hdl TopLevel.vhd]
+set n_in  ""
+set n_out ""
+if {[catch {
+    set fh [open $toplevel r]
+    set src [read $fh]
+    close $fh
+    regexp {number_of_inputs\s*:\s*integer\s*:=\s*(\d+)}  $src -> n_in
+    regexp {number_of_outputs\s*:\s*integer\s*:=\s*(\d+)} $src -> n_out
+} err]} {
+    puts "WARNING: could not read widths from $toplevel: $err"
+}
+
+if {$n_in eq "" || $n_out eq ""} {
+    puts "WARNING: widths not found in TopLevel.vhd -- no manifest written."
+    puts "         The host will not be able to check the tracefile against"
+    puts "         this bitstream."
+} else {
+    set manifest [file join $build_dir build_info.json]
+    set fh [open $manifest w]
+    puts $fh "{"
+    puts $fh "  \"example\": \"$example_dir\","
+    puts $fh "  \"part\": \"$part\","
+    puts $fh "  \"number_of_inputs\": $n_in,"
+    puts $fh "  \"number_of_outputs\": $n_out,"
+    puts $fh "  \"built\": \"[clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S}]\""
+    puts $fh "}"
+    close $fh
+    puts "=== manifest : $n_in in / $n_out out -> $manifest"
+}
+
 puts "=== SUCCESS: bitstream at $bit"
 exit 0

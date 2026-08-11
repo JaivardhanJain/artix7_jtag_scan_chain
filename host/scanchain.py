@@ -36,10 +36,18 @@ and decoding without a board attached. Those are the parts where the bugs were.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 import time
 from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+# Written by scripts/program.tcl once a device has actually been programmed.
+# Absent if the board was programmed some other way -- that is not an error,
+# only a check we cannot perform.
+MANIFEST = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".programmed.json")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -117,6 +125,61 @@ def _expand_mask(mask: str, output_width: int, line_no: int) -> str:
         raise TracefileError(
             f"line {line_no}: mask contains {sorted(bad)}; expected only 0/1")
     return mask
+
+
+def check_build(manifest: Optional[Dict[str, Any]],
+                in_width: int, out_width: int) -> Optional[str]:
+    """
+    Does the tracefile match the design currently on the FPGA?
+
+    Returns None if it matches or if there is nothing to check against, else a
+    message explaining the mismatch.
+
+    Why this exists. The host takes its scan widths entirely from the
+    tracefile, and the FPGA has no way to say "that is not how wide I am".
+    Build one example, run another's vectors, and every shift is misaligned:
+    not an error, just a screen of plausible failures. That is the same shape
+    as the two worst defects in this project's history -- wrong answers that
+    look like a broken DUT -- and it is the single easiest mistake to make
+    while comparing labs.
+
+    A width mismatch is fatal rather than a warning. There is no case where
+    continuing produces a meaningful result.
+    """
+    if not manifest:
+        return None
+    want_in = manifest.get("number_of_inputs")
+    want_out = manifest.get("number_of_outputs")
+    if want_in is None or want_out is None:
+        return None
+    if want_in == in_width and want_out == out_width:
+        return None
+
+    example = manifest.get("example", "<unknown>")
+    when = manifest.get("programmed", manifest.get("built", "?"))
+    return (
+        f"tracefile does not match the design on the board.\n"
+        f"  on the board : {want_in} in / {want_out} out   "
+        f"(built from {example}, programmed {when})\n"
+        f"  tracefile    : {in_width} in / {out_width} out\n"
+        f"\n"
+        f"Running this would misalign every scan and report failures that\n"
+        f"say nothing about the design. Rebuild for this tracefile:\n"
+        f"  python scripts/new_lab.py <your_design>.vhd --patch-toplevel\n"
+        f"  scripts\\build.bat <example_dir>\n"
+        f"  scripts\\program.bat\n"
+        f"\n"
+        f"Pass --no-build-check to run anyway.")
+
+
+def load_manifest(path: str = MANIFEST) -> Optional[Dict[str, Any]]:
+    """Read the programmed-build manifest. Missing or malformed -> None."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
 
 
 def parse_tracefile(text: str) -> Tracefile:
@@ -709,6 +772,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                          f"hardware; see docs/RESULTS.md 5C")
     ap.add_argument("--expect-idcode", type=lambda s: int(s, 0), default=None,
                     help="abort unless the TAP reports this IDCODE, e.g. 0x0362D093")
+    ap.add_argument("--no-build-check", action="store_true",
+                    help="run even if the tracefile's widths disagree with "
+                         "the design currently on the board")
     ap.add_argument("--dry-run", action="store_true",
                     help="parse and validate the tracefile, then exit. "
                          "No hardware needed.")
@@ -733,6 +799,19 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     print(f"{args.tracefile}: {len(trace.vectors)} vectors, "
           f"{trace.input_width} in / {trace.output_width} out")
+
+    manifest = None if args.no_build_check else load_manifest()
+    if manifest:
+        problem = check_build(manifest, trace.input_width, trace.output_width)
+        if problem:
+            print(f"error: {problem}", file=sys.stderr)
+            return 2
+        print(f"build check: matches {manifest.get('example', '?')} "
+              f"({manifest['number_of_inputs']} in / "
+              f"{manifest['number_of_outputs']} out)")
+    elif not args.no_build_check:
+        print("build check: skipped -- no .programmed.json "
+              "(board not programmed by scripts/program.bat)")
 
     if args.dry_run:
         masked = sum(1 for v in trace.vectors if "1" not in v.mask)

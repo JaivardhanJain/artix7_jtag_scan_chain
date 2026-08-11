@@ -1132,3 +1132,41 @@ The per-vector table was actively harmful here: 3586 failures reads like a desig
 | Re-sweep with `0x8A` to locate the real timing ceiling (D2) | **Outstanding** |
 | `seq1011` 602-vector hardware run | **Outstanding** |
 | Audit the remaining inherited claims the same way — count, don't assume | **Ongoing** |
+
+---
+
+## Entry 019 — 2026-08-11 — The bitstream and the tracefile now have to agree
+
+### 19.1 The gap
+
+Nothing tied a bitstream to a tracefile. `scanchain.py` takes its scan widths entirely from the tracefile, and the FPGA has no way to say "that is not how wide I am". Build one example, run another's vectors, and every shift is misaligned — producing not an error but a screen of plausible-looking failures.
+
+That is the same shape as the two worst defects this project has dealt with: **wrong answers that look like a broken DUT.** It is also the easiest mistake to make right now, while running the same board through several labs to compare the old and new flows.
+
+### 19.2 What was added
+
+`build.tcl` parses the widths out of `TopLevel.vhd` after a successful bitstream and writes `vivado/build/build_info.json`. `program.tcl` copies that to `.programmed.json` at the repo root **once the device has actually been programmed** — the build manifest alone describes the most recent build, which is not necessarily what is on the chip. `scanchain.py` reads it and refuses a mismatched tracefile:
+
+```
+error: tracefile does not match the design on the board.
+  on the board : 8 in / 5 out   (built from examples/bcd_adder, programmed ...)
+  tracefile    : 3 in / 1 out
+```
+
+Three deliberate choices:
+
+**Fatal, not a warning.** There is no case where continuing produces a meaningful result, and a warning above a wall of failures is a warning nobody reads.
+
+**A missing manifest is not an error.** Programming through the Vivado GUI is a legitimate workflow — it is the one the original procedure documents, and the one being used for the comparison right now. Absence of a manifest prints "skipped" and continues. `--no-build-check` overrides the check itself.
+
+**The message names the design that is loaded.** "Widths mismatch" tells you something is wrong; "the board has `examples/bcd_adder`, your tracefile is `seq1011`" tells you what to do.
+
+### 19.3 What it does not do
+
+It compares a tracefile against a *record* of what was programmed, not against the silicon. Program the board by other means, or edit `TopLevel.vhd` and rebuild without reprogramming, and the record is stale.
+
+Reading the width from the hardware directly is not available here: the input and output registers are separate and which one sits in the scan path depends on the phase bit, so the usual JTAG DR-length probe does not apply. A record-based check closes the mistake that actually happens — a stale bitstream — and it should not be described as more than that.
+
+### 19.4 Verified
+
+Tclsh reproduction of both manifest steps, including a bitstream path containing spaces (the recurring hazard in this flow), with Python parsing the result. End to end: matching tracefile accepted, mismatched tracefile rejected with exit code 2, `--no-build-check` overrides, absent manifest skips cleanly. 7 new offline tests, 41 total.

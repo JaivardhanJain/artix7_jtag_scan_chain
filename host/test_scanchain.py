@@ -26,6 +26,7 @@ from scanchain import (  # noqa: E402
     Result,
     TracefileError,
     Vector,
+    check_build,
     compare,
     diff_marker,
     decode_idcode,
@@ -35,6 +36,7 @@ from scanchain import (  # noqa: E402
     encode_output_scan,
     identify_part,
     parse_tracefile,
+    load_manifest,
     reverse_byte,
     split_bytes_bits,
     write_report,
@@ -564,6 +566,60 @@ def test_diff_marker_ignores_masked_bits():
 def test_diff_marker_flags_every_differing_enabled_bit():
     assert diff_marker("0000", "1111", "1111") == "^^^^"
 
+
+# ===========================================================================
+# Bitstream / tracefile agreement
+# ===========================================================================
+
+GOOD = {"example": "examples/bcd_adder", "number_of_inputs": 8,
+        "number_of_outputs": 5, "programmed": "2026-08-11T12:00:00"}
+
+
+def test_matching_widths_pass():
+    assert check_build(GOOD, 8, 5) is None
+
+
+def test_mismatched_input_width_is_caught():
+    msg = check_build(GOOD, 7, 5)
+    assert msg and "8 in / 5 out" in msg and "7 in / 5 out" in msg
+
+
+def test_mismatched_output_width_is_caught():
+    msg = check_build(GOOD, 8, 1)
+    assert msg and "8 in / 1 out" in msg
+
+
+def test_the_error_names_the_design_on_the_board():
+    """Knowing which example is loaded is what makes the message actionable."""
+    msg = check_build(GOOD, 3, 1)
+    assert "examples/bcd_adder" in msg
+    assert "--no-build-check" in msg
+
+
+def test_no_manifest_means_no_check_not_a_failure():
+    """
+    A board programmed by other means is a legitimate workflow -- notably the
+    original Vivado GUI flow. Absence of a manifest must not block a run.
+    """
+    assert check_build(None, 8, 5) is None
+    assert check_build({}, 8, 5) is None
+
+
+def test_partial_manifest_is_ignored_rather_than_guessed_at():
+    assert check_build({"example": "x"}, 8, 5) is None
+    assert check_build({"number_of_inputs": 8}, 8, 5) is None
+
+
+def test_load_manifest_survives_a_missing_or_corrupt_file():
+    import tempfile, os
+    assert load_manifest("/nonexistent/.programmed.json") is None
+    fd, path = tempfile.mkstemp()
+    os.write(fd, b"{not json")
+    os.close(fd)
+    try:
+        assert load_manifest(path) is None
+    finally:
+        os.unlink(path)
 
 
 if __name__ == "__main__":

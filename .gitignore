@@ -115,3 +115,9 @@ Desktop.ini
 # assets/ -- not whichever draft happened to be lying around.
 # ---------------------------------------------------------------
 /scan_chain_project_review*.pptx
+
+# ---------------------------------------------------------------
+# Written by scripts/program.tcl to record what is on the FPGA right
+# now. Machine-local state, not a property of the source tree.
+# ---------------------------------------------------------------
+/.programmed.json

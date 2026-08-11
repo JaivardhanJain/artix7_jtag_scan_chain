@@ -6,7 +6,7 @@ Hardware steps are broken out with expected outputs in [BENCH_CHECKLIST.md](BENC
 
 For the state this project was inherited in, how each defect was found, why the phases are ordered this way, and a defect-to-phase traceability matrix, see [ENGINEERING_LOG.md](ENGINEERING_LOG.md).
 
-**Feasibility: 8.5/10.** The protocol is already proven — 4096/4096 vectors pass on the bundled passthrough test — so there are no unknown-unknowns in the hard part. Phases 1–3 are mechanical. Phase 4 is ordinary scripting. The only genuine engineering is the TDO edge fix and the testbench, and both are bounded.
+**Feasibility: 8.5/10.** The protocol is already proven — 4096/4096 vectors pass on the bundled passthrough test (`passthrough_4096_out.txt`; the *other* 4096-line file turned out to be a captured failure, see RESULTS.md §1.1) — so there are no unknown-unknowns in the hard part. Phases 1–3 are mechanical. Phase 4 is ordinary scripting. The only genuine engineering is the TDO edge fix and the testbench, and both are bounded.
 
 ---
 

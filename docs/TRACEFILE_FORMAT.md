@@ -102,7 +102,7 @@ with open("TRACEFILE.txt", "w") as f:
             f.write(f"{inp} {exp} 1\n")
 ```
 
-The bundled `results/passthrough_4096_out.txt` is exactly this kind of exhaustive sweep — 4096 vectors of a 12-bit input against an 8-bit output, all passing. It is the evidence that the protocol and batching work at scale.
+The bundled `results/passthrough_4096_out.txt` is exactly this kind of exhaustive sweep — 4096 vectors of a 12-bit input against an 8-bit output, all passing, with 256 distinct output values. It is the evidence that the protocol and batching work at scale. (Its neighbour `passthrough_4096_output1.txt` looks like a duplicate and is not — it is a captured failure. See RESULTS.md §1.1.)
 
 ## Output file
 

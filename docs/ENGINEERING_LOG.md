@@ -34,11 +34,11 @@ Five hand-written files existed. Verbatim inventory:
 | `constraints.xdc` | `Artix7test.srcs/constrs_1/new/` | Two lines only: an `IOSTANDARD LVCMOS33` assignment on `state_out[*]`, and `set_property SEVERITY Warning [get_drc_checks UCIO-1]`. |
 | `scan_bscane2.py` | `scan_chain_files/` | ~250 lines. FTDI MPSSE host driver: opens channel 0, sets clock divider `0x3B`, resets the TAP, reads the 32-bit IDCODE, loads `USER1 = 0x02` into the 6-bit IR, then loops over the tracefile issuing DR scans and comparing results. Batches commands to 61440 bytes per USB transfer. |
 
-Plus data files: `TRACEFILE.txt` (46 vectors, 7 bits in / 1 bit out) and three result files — `output.txt` (46 lines, all `Success`), `out.txt` and `output1.txt` (4096 lines each, 12 bits in / 8 bits out, all `Success`).
+Plus data files: `TRACEFILE.txt` (46 vectors, 7 bits in / 1 bit out) and three result files — `output.txt` (46 lines, all `Success`), `out.txt` and `output1.txt` (4096 lines each, 12 bits in / 8 bits out, all `Success`). [**correction, entry 018: `output1.txt` is NOT all Success — it is 510 pass / 3586 fail, a captured stuck-at-0 failure. This line was written from the files' size and shape without counting.**]
 
 ### 1.3 What demonstrably worked
 
-This matters and should not be understated: **the protocol was proven.** `out.txt` and `output1.txt` are two independent 4096-vector exhaustive sweeps in which every single vector passed. That establishes that
+This matters and should not be understated: **the protocol was proven.** `out.txt` and `output1.txt` are two independent 4096-vector exhaustive sweeps in which every single vector passed. [**correction, entry 018: only `out.txt` passed. `output1.txt` is a failed run. The conclusions below stand on the one clean sweep; the claim of independent repetition does not.**] That establishes that
 
 - `BSCANE2` with `JTAG_CHAIN => 1` and a 6-bit `USER1 = 0x02` correctly places the user data register in the scan path on Artix-7,
 - the two-phase `io` multiplexing scheme (inputs on one DR scan, outputs on the next) works,
@@ -1034,3 +1034,101 @@ The only mechanism that found them was leaving the working tree and reading the 
 | `seq1011` 602-vector hardware run | **Outstanding** |
 | Change the default divider to `0x02` after more repeats | **Deferred**, deliberately |
 | `TopLevel.vhd` widths are a generated value under version control | **Known wart** — see 17.2 |
+
+---
+
+## Entry 018 — 2026-08-11 — Lab 4, and a failed run that has been sitting in `results/` the whole time
+
+Two things. A clean blind test of the generator, and a documentation error in the most-cited claim in this repository.
+
+### 18.1 The generator passed a genuinely blind test
+
+Lab 4 is a BCD adder — two 4-bit decimal operands in, a digit and a carry out, structural down to gate level. Its wrapper was written by the lab's author, for a design `new_lab.py` had never seen, before `new_lab.py` existed.
+
+Run the generator on `BCDAdder.vhdl` and it produces the same layout, independently:
+
+```
+A => input_vector(7 downto 4)
+B => input_vector(3 downto 0)
+Y => output_vector
+```
+
+**This is the first reference wrapper in the project that is actually independent.** The others are not: `seq1011` was written for this repository, `alu`'s wrapper was produced by the generator itself, and `string_detector`'s is the file I *derived* the layout convention from in the first place. Each checks the generator against something related to it. `test_reproduces_committed_wrappers` looked like four cases and was closer to one.
+
+It also parsed `port(A, B : in std_logic_vector(3 downto 0);` — two ports sharing a declaration, a syntax neither committed example uses.
+
+The tracefile was checked against an independent Python model of BCD addition before the board run: 100 vectors, 0 mismatches, exhaustive over all 100 valid operand pairs (though only 100 of 256 possible 8-bit inputs — operands above 9 are never applied, which the example README states). Hardware: **100/100**, as predicted.
+
+### 18.2 A test that failed on notation
+
+`port_pairs` compared port maps textually, so the generator's `output_vector(4 downto 0)` and the lab author's bare `output_vector` came back as a difference. Identical signals.
+
+Fixed by normalising full-width slices before comparing — not by editing either file. A test that fails on notation rather than meaning is worse than no test, because it teaches you to skim its output.
+
+### 18.3 `passthrough_4096_output1.txt` is a failed run
+
+Found by accident. I was grepping for `Failure` while building better per-vector failure reporting, and one of the inherited result files returned 3586 hits.
+
+```
+distinct 'got' values across 4096 lines : 1  -> '00000000'
+Success                                  : 510
+vectors whose correct output is 00000000 : 510   (per the good run)
+every Success is one of those            : yes
+every Failure is not                     : yes
+```
+
+**TDO returned a constant for the entire run.** The 510 "passes" are the vectors whose right answer happened to equal that constant. Nothing was being observed.
+
+Stuck-at-0 is the signature this project already documented for D1: USER1 selected, output register never loaded (entry 015, §15.3). A capture file cannot separate that from a DUT tied low, so this is a signature match rather than a proof — but the failure mode D1 argues for was evidently occurring on that bench, before any of this work started.
+
+### 18.4 How the error propagated, which is the part worth keeping
+
+Entry 001 §1.2 lists the inherited files and says all three result files are "all `Success`". I wrote that from their size and shape. I did not count.
+
+Everything downstream inherited it:
+
+| Document | Claim |
+|---|---|
+| Entry 001 §1.3 | "two independent 4096-vector exhaustive sweeps in which every single vector passed" |
+| `RESULTS.md` §1 | "4096 pass, 0 fail" — table row |
+| `RESULTS.md` §7 | "**Hardware** — 4096/4096, twice" |
+| `results/README.md` | "Duplicate run of the same sweep" |
+| `ROADMAP.md`, `TRACEFILE_FORMAT.md`, `README.md`, `host/README.md` | "4096/4096" as the wire protocol's evidence |
+| The project presentation | A slide reading "4096 / 4096 — two independent exhaustive sweeps" |
+
+One `grep -c Failure` at any point in three weeks would have caught it. The previous `results/README.md` **printed that exact command** as the way to check a run. I wrote that line and never ran it.
+
+This is the same failure as `test_encode_ir_shape` (entry 013) in a different costume: an assertion made from an assumption, then treated as established because it had been written down. The tell in both cases is that the claim was never executed — and both times the check was cheap and obvious in hindsight.
+
+### 18.5 What the correction actually costs
+
+Less than the size of the error suggests. Every "the wire protocol is proven" argument in this repository — the reason `scan_bscane2.py` was preserved byte-for-byte, the reason the rewrite is pinned to its output across widths 1–64 — rests on **one clean exhaustive 4096-vector sweep with 256 distinct output values**. That file is real and unaffected.
+
+What is gone is the word *twice*: the independent repetition. And D1 gains a piece of historical evidence it did not have.
+
+### 18.6 The tooling change that follows from it
+
+The original driver printed no summary — 4096 lines, no counts, outcome invisible unless you go looking. That is *why* this survived.
+
+`host/scanchain.py` now:
+
+- writes failing lines as `<input> <got> Failure  expected=<bits>  diff=<..^.>  line=<n>`, so a failure is actionable from the report alone without cross-referencing a tracefile by line number. Passing and skipped lines are byte-identical to the old format, so the `results/` parity check is undisturbed.
+- marks in `diff` only the bits that actually failed — masked positions show `-`, because flagging a don't-care sends you hunting a fault that isn't there.
+- **detects the constant-TDO case and reports it as one fault rather than N.** Replaying `passthrough_4096_output1.txt` through it now prints:
+
+```
+  !! TDO was constant '00000000' for all 4096 vectors.
+     This is one fault, not 3586 -- the scan chain returned nothing.
+     Stuck at 0: USER1 is selected but the output register is never
+     loaded -- the phase-bit desync of KNOWN_ISSUES #1.
+```
+
+The per-vector table was actively harmful here: 3586 failures reads like a design with many bugs. It was one fault, and naming it is the difference between a diagnosis and a wall of output.
+
+### 18.7 Remaining
+
+| | |
+|---|---|
+| Re-sweep with `0x8A` to locate the real timing ceiling (D2) | **Outstanding** |
+| `seq1011` 602-vector hardware run | **Outstanding** |
+| Audit the remaining inherited claims the same way — count, don't assume | **Ongoing** |

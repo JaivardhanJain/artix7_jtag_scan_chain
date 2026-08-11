@@ -211,7 +211,7 @@ The host already issues a TAP reset before its IDCODE read at startup, so with t
 
 **Why it was withdrawn — and why that reasoning was also wrong.** The first hardware run showed TDO stuck at 1, which looked like the new register breaking the link. It was not: the real cause was a bug in `host/scanchain.py` (`encode_ir` sent TMS=0 instead of TMS=1 leaving Shift-IR, so USER1 was never selected). The falling-edge register was therefore **never tested against a working host** — the evidence used to retire the issue was contaminated by an unrelated defect.
 
-**Where it stands.** No evidence the register is harmful; no evidence the original is defective. The combinational version is kept because it is the configuration with 4096/4096 behind it — an argument from evidence, not a demonstration. Simulation cannot settle it, since both `tb_scan_core` and `model_scan_core.py` stand in for `BSCANE2` and sample at the same point either way.
+**Where it stands.** No evidence the register is harmful; no evidence the original is defective. The combinational version is kept because it is the configuration with a clean 4096-vector sweep behind it — an argument from evidence, not a demonstration. Simulation cannot settle it, since both `tb_scan_core` and `model_scan_core.py` stand in for `BSCANE2` and sample at the same point either way.
 
 **What the sweep added, and what it did not.** The combinational version is now measured correct at a 167 ns TCK period ([RESULTS.md §5C](docs/RESULTS.md)) — the first timing evidence this design has ever had, since Vivado never analysed it. But no divider failed, so it found the FTDI's ceiling rather than the design's, and the ceiling turned out to be 6 MHz rather than the assumed 30 MHz. That is roughly where the 1149.1 argument would expect the combinational version to be fine anyway, so it does not discriminate. **The deciding experiment is to send MPSSE `0x8A` instead of `0x8B`, unlocking 30 MHz, and re-sweep.**
 
@@ -249,7 +249,9 @@ The model also earned its keep immediately: the first version of the bit-order t
 
 ### Still unchanged
 
-All example DUTs and tracefiles. Issues #5, #6 and #7 remain open.
+The wire protocol. `host/scan_bscane2.py` is kept byte-for-byte as inherited, and the rewrite is pinned to its output across every width from 1 to 64 bits — the encoding and decoding are the part of this project with 4096/4096 behind them, and a rewrite that quietly changed one byte would have destroyed the strongest evidence available. That decision also paid for itself: running the untouched original against the same bitstream is what located the `encode_ir` bug in a single command.
+
+**Of the nine findings, eight are resolved and one — [#2](docs/KNOWN_ISSUES.md), the TDO launch edge — is open and unproven in both directions.**
 
 ---
 

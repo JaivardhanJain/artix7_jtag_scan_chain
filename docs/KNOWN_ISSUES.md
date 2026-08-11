@@ -14,6 +14,8 @@ Ordered by severity. Issues 1 and 2 can produce results that look fine but aren'
 >
 > **The defect is quieter than originally argued.** The desynced design returns a constant `0`, and only 3 of the 46 vectors expect a `1` — so **41 of 44 unmasked vectors still report `Success`**, a 93% pass rate on a completely broken harness. The visible failures are the detections, which is exactly what a DUT that never asserts its output looks like.
 >
+> **It may have happened for real, before this project started.** `results/passthrough_4096_output1.txt` — inherited with the original files, and recorded here as a clean duplicate run until 2026-08-11 — is a **captured stuck-at-0 failure**: TDO returned `00000000` on all 4096 vectors, and the 510 `Success` lines are exactly the 510 vectors whose correct answer is `00000000`. That is this defect's signature. It is not proof (a capture cannot separate a desync from a DUT tied low), but the failure mode argued for here was evidently occurring on that bench. See [RESULTS.md §1.1](RESULTS.md).
+>
 > Earlier detail: `BSCANE2.RESET` and `SEL` are wired into `scan_core`, which clears `io` asynchronously in Test-Logic-Reset and synchronously when the DR is deselected. Confirmed by tb_scan_core tests 2 and 3 under Vivado xsim 2020.2 — recovery works via both paths. **Also confirmed in the synthesised netlist: `io` maps to the design's only `FDCE` (flip-flop with asynchronous clear) among 23 plain `FDRE`s, so the reset path survived into hardware primitives.** Remaining bench test: interrupt a run, rerun **without reprogramming**, expect a full pass. Description below is of the original defect.
 
 `io` selects input phase vs output phase and inverts on every Update-DR. It is initialised only by its signal declaration:
@@ -56,7 +58,7 @@ Then have the host issue a TAP reset at the start of every run — it already do
 >
 > **That second claim was also unfounded.** The stuck-at-1 was caused by a bug in `host/scanchain.py` — `encode_ir` sent TMS=0 instead of TMS=1 when leaving Shift-IR, so USER1 was never latched and the user data register was never in the scan path. That fully explains the symptom, and it means the falling-edge register was **never actually tested against a working host**. The evidence used to withdraw this issue was contaminated by an unrelated defect.
 >
-> **Where that leaves it.** There is no evidence the falling-edge register is harmful, and no evidence the original assignment is defective. The combinational version is retained because it is the configuration with 46/46 and 4096/4096 behind it — a "don't change what has hardware evidence" argument, not a demonstration.
+> **Where that leaves it.** There is no evidence the falling-edge register is harmful, and no evidence the original assignment is defective. The combinational version is retained because it is the configuration with 46/46 and one clean 4096/4096 sweep behind it — a "don't change what has hardware evidence" argument, not a demonstration.
 >
 > **This is now cheaply testable.** With the host fixed, reinstating the falling-edge register, rebuilding and rerunning would settle it in one cycle. Until someone does, treat the original 1149.1 analysis below as an open question rather than either a defect or a debunked one.
 >

@@ -23,8 +23,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from scanchain import (  # noqa: E402
+    Result,
     TracefileError,
+    Vector,
     compare,
+    diff_marker,
     decode_idcode,
     decode_output,
     encode_input_scan,
@@ -34,6 +37,7 @@ from scanchain import (  # noqa: E402
     parse_tracefile,
     reverse_byte,
     split_bytes_bits,
+    write_report,
 )
 
 
@@ -504,6 +508,62 @@ def _run_standalone():
             print(f"  FAIL  {name}: {exc}")
     print(f"\n{len(tests)} tests, {failures} failures")
     return 1 if failures else 0
+
+
+# ===========================================================================
+# Report format -- see engineering log entry 018
+# ===========================================================================
+
+def test_passing_and_skipped_lines_keep_the_original_format():
+    """
+    The committed captures in results/ are compared byte-for-byte against
+    fresh runs; that parity check is load-bearing evidence. Passing and
+    skipped lines must therefore never gain a field.
+    """
+    import tempfile, os
+    res = [Result(Vector(1, "0000010", "0", "0"), "0", True, True),
+           Result(Vector(3, "0001000", "0", "1"), "0", True, False)]
+    fd, path = tempfile.mkstemp()
+    os.close(fd)
+    try:
+        write_report(path, res)
+        with open(path) as fh:
+            assert fh.read() == "0000010 0 Skipped\n0001000 0 Success\n"
+    finally:
+        os.unlink(path)
+
+
+def test_failing_lines_carry_expected_diff_and_line_number():
+    """A bare 'Failure' forces you to cross-reference the tracefile by hand."""
+    import tempfile, os
+    res = [Result(Vector(17, "10011001", "11000", "11111"), "11001", False, False)]
+    fd, path = tempfile.mkstemp()
+    os.close(fd)
+    try:
+        write_report(path, res)
+        with open(path) as fh:
+            line = fh.read().strip()
+        assert line.startswith("10011001 11001 Failure")
+        assert "expected=11000" in line
+        assert "diff=....^" in line
+        assert "line=17" in line
+    finally:
+        os.unlink(path)
+
+
+def test_diff_marker_ignores_masked_bits():
+    """
+    A masked bit may differ without that being a failure. Marking it would
+    send the reader looking for a fault that is not there.
+    """
+    assert diff_marker("00100", "10111", "11011") == "^.-^^"
+    assert diff_marker("101", "101", "111") == "..."
+    assert diff_marker("000", "111", "000") == "---"
+
+
+def test_diff_marker_flags_every_differing_enabled_bit():
+    assert diff_marker("0000", "1111", "1111") == "^^^^"
+
 
 
 if __name__ == "__main__":

@@ -29,8 +29,8 @@ architecture Struct of TopLevel is
   ------------------------------------------------------------------------------
   -- DUT I/O configuration -- edit these two to match your DUT
   ------------------------------------------------------------------------------
-  constant number_of_inputs  : integer := 3;
-  constant number_of_outputs : integer := 1;
+  constant number_of_inputs  : integer := 8;
+  constant number_of_outputs : integer := 5;
   ------------------------------------------------------------------------------
 
   component DUT is

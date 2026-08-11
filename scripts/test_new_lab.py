@@ -45,8 +45,20 @@ def build(src, entity=None, special=True, clock=None, reset=None):
     return ent, ins, n_in, outs, n_out
 
 
-def port_pairs(vhdl_text):
-    """Extract 'name => slice' pairs from a port map, whitespace-insensitive."""
+def port_pairs(vhdl_text, n_in=None, n_out=None):
+    """
+    Extract 'name => slice' pairs from a port map, whitespace-insensitive.
+
+    If the vector widths are given, a full-width slice is normalised to the
+    bare signal name: `output_vector(4 downto 0)` and `output_vector` denote
+    the same signal, and hand-written wrappers vary freely between the two.
+    Without this, comparing a generated wrapper against a hand-written one
+    reports a difference where there is no difference -- which is exactly
+    what happened on the lab 4 BCD adder, whose author wrote the bare form.
+
+    A test that fails on notation rather than meaning is worse than no test:
+    it trains you to ignore it.
+    """
     import re
     m = re.search(r"port\s*map\s*\((.*?)\)\s*;", vhdl_text, re.S | re.I)
     assert m, "no port map found"
@@ -55,7 +67,12 @@ def port_pairs(vhdl_text):
         if "=>" not in part:
             continue
         lhs, rhs = part.split("=>", 1)
-        pairs[lhs.strip()] = " ".join(rhs.split())
+        rhs = " ".join(rhs.split())
+        if n_in:
+            rhs = rhs.replace(f"input_vector({n_in - 1} downto 0)", "input_vector")
+        if n_out:
+            rhs = rhs.replace(f"output_vector({n_out - 1} downto 0)", "output_vector")
+        pairs[lhs.strip()] = rhs
     return pairs
 
 
@@ -93,6 +110,12 @@ def test_reproduces_committed_wrappers():
         ("examples/alu/ALU.vhd", "examples/alu/DUT.vhd"),
         ("examples/string_detector/StringDetector.vhdl",
          "examples/string_detector/DUT.vhd"),
+        # bcd_adder is the only case whose reference wrapper was written by
+        # someone with no knowledge of this generator, for a design it had
+        # never seen. It is therefore the only genuinely blind comparison
+        # here -- the others check the generator against wrappers that were
+        # either written alongside it or produced by it.
+        ("examples/bcd_adder/BCDAdder.vhdl", "examples/bcd_adder/DUT.vhd"),
     ]
     checked = 0
     for src_rel, dut_rel in cases:
@@ -105,10 +128,12 @@ def test_reproduces_committed_wrappers():
         generated = emit_wrapper(ent, src, ins, n_in, outs, n_out)
         with open(dut, encoding="utf-8") as fh:
             handwritten = fh.read()
-        assert port_pairs(generated) == port_pairs(handwritten), (
+        got = port_pairs(generated, n_in, n_out)
+        want = port_pairs(handwritten, n_in, n_out)
+        assert got == want, (
             f"{src_rel}: generated layout differs from the hand-written "
-            f"{dut_rel}\n  generated:   {port_pairs(generated)}\n"
-            f"  hand-written: {port_pairs(handwritten)}")
+            f"{dut_rel}\n  generated:   {got}\n"
+            f"  hand-written: {want}")
         checked += 1
     assert checked >= 1, "no example sources available to check against"
 

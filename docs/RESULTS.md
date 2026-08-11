@@ -21,9 +21,19 @@ Measured outcomes, separated by how strong the evidence is. Anything not measure
 |---|---|---|---|
 | String detector | 46 | 46 pass, 0 fail | `results/string_detector_output.txt` |
 | Exhaustive passthrough (12 in / 8 out) | 4096 | 4096 pass, 0 fail | `results/passthrough_4096_out.txt` |
-| Exhaustive passthrough, repeat | 4096 | 4096 pass, 0 fail | `results/passthrough_4096_output1.txt` |
+| Exhaustive passthrough, second attempt | 4096 | **510 pass, 3586 fail — a captured failure** | `results/passthrough_4096_output1.txt` |
 
-This is the number that matters most in the whole project, and it belongs to the original implementation: **the protocol works, at scale, on real hardware.** Everything since is robustness and usability work on top of a design that was already functionally correct.
+This is the number that matters most in the whole project, and it belongs to the original implementation: **the protocol works, at scale, on real hardware.** One clean 4096-vector sweep, 256 distinct output values. Everything since is robustness and usability work on top of a design that was already functionally correct.
+
+### 1.1 The second file is a failed run, and this document said otherwise for two weeks
+
+`passthrough_4096_output1.txt` was recorded here as a duplicate clean sweep. It is not. **TDO returned `00000000` on all 4096 vectors**; the 510 `Success` lines are exactly the 510 vectors whose correct output is `00000000`, and every `Failure` is one of the rest. The harness was returning a constant and observing nothing.
+
+Stuck-at-0 is the documented signature of the phase desync in [KNOWN_ISSUES #1](KNOWN_ISSUES.md) — USER1 selected, output register never loaded. That is a signature match and not a proof; a capture file cannot separate a desync from a DUT tied low. But it means the failure mode #1 predicts was, at some point, actually happening on this bench.
+
+**How the error was made.** Engineering log entry 001 recorded all three inherited result files as "all `Success`" on the basis of their size and shape. Nobody counted, including me, and every later document inherited the claim — the README, the roadmap, the tracefile guide, and a presentation slide reading "4096 / 4096, two independent exhaustive sweeps". One `grep -c Failure` would have caught it at any point. The previous `results/README.md` even printed that exact command as the way to check a run.
+
+**What actually changes.** Less than it looks. The protocol still has one clean exhaustive 4096-vector run behind it, which is what every "the wire protocol is proven" argument in this repository rests on. What is gone is the word *twice* — the independent repetition. See entry 018.
 
 **What the baseline does not establish.** Every one of these runs completed without interruption, at a clock divider of `0x3B` (100 kHz). Neither the desync failure mode nor the TDO edge race can appear under those conditions, so a clean sweep here is consistent with both defects being present. It was.
 
@@ -456,7 +466,7 @@ Simulation and synthesis are complete. Everything remaining needs the board.
 
 | Claim | Strongest evidence to date |
 |---|---|
-| The scan chain approach works on Artix-7 | **Hardware** — 4096/4096, twice |
+| The scan chain approach works on Artix-7 | **Hardware** — 4096/4096, once (the second such file is a captured failure, §1.1) |
 | The HDL compiles and elaborates | **Simulation** — Vivado 2020.2, clean |
 | The design synthesises, implements and produces a bitstream | **Toolchain** — 0 errors, 0 warnings, no `UCIO-1` |
 | Issue #7 (vestigial constraints) is resolved | **Toolchain** — no `UCIO-1` with the DRC no longer suppressed |

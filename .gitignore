@@ -37,6 +37,11 @@ examples/string_detector/StringDetector.vhdl
 examples/string_detector/RunDetector.vhdl
 examples/string_detector/CryDetector.vhdl
 examples/string_detector/BroomDetector.vhdl
+examples/bcd_adder/BCDAdder.vhdl
+examples/bcd_adder/OverNineDetector.vhdl
+examples/bcd_adder/FourBitAdder.vhdl
+examples/bcd_adder/FullAdder.vhdl
+examples/bcd_adder/Gates.vhdl
 
 # ---------------------------------------------------------------
 # Simulator output -- regenerable by sim/run_sim.bat or run_sim.sh
@@ -94,6 +99,19 @@ Desktop.ini
 /prefix_baseline.txt
 /prefix_after.txt
 /alu.txt
+/bcd.txt
 /seq.txt
 /d??.txt
 /output.txt
+
+# ---------------------------------------------------------------
+# Office lock files -- created while a document is open, never wanted
+# ---------------------------------------------------------------
+~$*
+
+# ---------------------------------------------------------------
+# Presentation drafts at the repo root. The deck is a real artefact,
+# but it should be committed deliberately under a settled name in
+# assets/ -- not whichever draft happened to be lying around.
+# ---------------------------------------------------------------
+/scan_chain_project_review*.pptx

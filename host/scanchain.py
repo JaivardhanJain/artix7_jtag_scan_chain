@@ -594,19 +594,54 @@ def run_vectors(dev: JtagDevice, trace: Tracefile, verbose: bool = False,
     return results
 
 
+def diff_marker(got: str, expected: str, mask: str) -> str:
+    """
+    A caret under each bit that actually failed, '.' elsewhere.
+
+    Only mask-enabled bits count: a masked bit may differ without that being a
+    failure, and marking it would send you looking for a fault that isn't
+    there. Don't-care positions in `expected` are marked '-'.
+    """
+    out = []
+    for g, e, m in zip(got, expected, mask):
+        if m != "1":
+            out.append("-")
+        elif g != e:
+            out.append("^")
+        else:
+            out.append(".")
+    return "".join(out)
+
+
 def write_report(path: str, results: List[Result]) -> None:
     """
-    One line per vector, in the original format so existing committed results
-    stay diffable:  <input> <bits read back> <Success|Failure>
-    Masked vectors are marked Skipped rather than silently passed.
+    One line per vector:  <input> <bits read back> <Success|Failure|Skipped>
+
+    Passing and skipped lines are exactly the original format, so the
+    committed captures in results/ stay diffable -- that parity check is
+    load-bearing evidence and must not be disturbed.
+
+    Failing lines carry three extra fields, because the bare original format
+    tells you a vector failed but not what was wanted or which bit was wrong,
+    and cross-referencing a tracefile by line number is how a wrong diagnosis
+    gets made:
+
+        <input> <got> Failure  expected=<bits>  diff=<..^.>  line=<n>
+
+    `diff` marks only the bits that actually failed -- see diff_marker.
     """
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         for r in results:
             if r.masked:
-                verdict = "Skipped"
+                fh.write(f"{r.vector.inputs} {r.got} Skipped\n")
+            elif r.passed:
+                fh.write(f"{r.vector.inputs} {r.got} Success\n")
             else:
-                verdict = "Success" if r.passed else "Failure"
-            fh.write(f"{r.vector.inputs} {r.got} {verdict}\n")
+                fh.write(
+                    f"{r.vector.inputs} {r.got} Failure"
+                    f"  expected={r.vector.expected}"
+                    f"  diff={diff_marker(r.got, r.vector.expected, r.vector.mask)}"
+                    f"  line={r.vector.line_no}\n")
 
 
 def print_summary(results: List[Result], elapsed: float, max_failures: int = 20) -> int:
@@ -623,6 +658,29 @@ def print_summary(results: List[Result], elapsed: float, max_failures: int = 20)
                   f"{r.vector.expected:<12} {r.got:<12}")
         if len(failed) > max_failures:
             print(f"  ... and {len(failed) - max_failures} more")
+
+        # A run where TDO never changed is not N independent failures -- it is
+        # one fault, and the per-vector table actively hides that by making it
+        # look like a design with many bugs. This check exists because
+        # results/passthrough_4096_output1.txt sat in this repository for
+        # years with exactly this signature, recorded as a clean run.
+        distinct = {r.got for r in results if not r.masked}
+        if len(distinct) == 1 and total > 1:
+            stuck = distinct.pop()
+            print(f"\n  !! TDO was constant '{stuck}' for all {total} vectors.")
+            print("     This is one fault, not "
+                  f"{len(failed)} -- the scan chain returned nothing.")
+            if set(stuck) == {"1"}:
+                print("     Stuck at 1: the host never selected USER1, so the")
+                print("     user register was never in the scan path and TDO")
+                print("     floated. Host-side fault. See docs/KNOWN_ISSUES.md.")
+            elif set(stuck) == {"0"}:
+                print("     Stuck at 0: USER1 is selected but the output")
+                print("     register is never loaded -- the phase-bit desync")
+                print("     of KNOWN_ISSUES #1. Reprogram, or rerun (the fixed")
+                print("     build resynchronises by itself).")
+            print("     Any vector whose expected output happens to equal")
+            print("     that constant will still report Success.")
 
     rate = total / elapsed if elapsed > 0 else 0.0
     print()

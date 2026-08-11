@@ -145,7 +145,7 @@ def check_build(manifest: Optional[Dict[str, Any]],
 
     A width mismatch is fatal rather than a warning. There is no case where
     continuing produces a meaningful result.
-    """
+
     Limitation worth knowing: this compares against a *record* of what was
     programmed, not against the silicon. The FPGA's configuration is volatile,
     so powering the board off leaves this manifest claiming a design is loaded

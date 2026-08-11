@@ -435,6 +435,45 @@ And the experiment that would settle it is now obvious: **send `0x8A` instead of
 
 ---
 
+## 5D. The mismatch guard, measured on hardware
+
+**Tier: hardware.** 2026-08-11. Board programmed with `examples/bcd_adder` (8 in / 5 out); `examples/seq1011`'s tracefile (3 in / 1 out) applied to it.
+
+With the guard, the run is refused before a single vector is sent:
+
+```
+error: tracefile does not match the design on the board.
+  on the board : 8 in / 5 out   (built from examples/bcd_adder, programmed 18:30:36)
+  tracefile    : 3 in / 1 out
+```
+
+With `--no-build-check`, which is what the flow did before this existed:
+
+```
+602 vectors: 355 passed, 245 failed, 2 skipped (masked)
+```
+
+### 5D.1 A 59% pass rate on a run with no meaning
+
+Every scan in that run was misaligned — the host shifted 3-bit vectors into an 8-bit register and read 1 bit out of a 5-bit one. The design being exercised was not the design under test. **355 of 600 unmasked vectors still reported `Success`.**
+
+The failure signature is worse than the count. Every visible failure reads `expected 0, got 1` — which looks precisely like an FSM asserting its output when it should not. Specific, plausible, and entirely fictional. The natural response is to go and debug a detector that is not on the chip.
+
+### 5D.2 Two silent failure modes, independently measured
+
+| Fault | Pass rate while broken | Signature |
+|---|---|---|
+| Phase desync (#1) | **93%** (41/44) | TDO constant; only vectors expecting the constant fail |
+| Width mismatch | **59%** (355/600) | TDO varies; failures look like a real design bug |
+
+Both produce a majority-passing run. Neither announces itself. They are unrelated in mechanism and identical in consequence, which is the case for treating a pass rate as something to be explained rather than trusted.
+
+### 5D.3 The constant-TDO check correctly stayed quiet
+
+A misaligned run is not a dead one — TDO does vary — so the one-fault diagnosis in `print_summary` did not fire, and should not have. Worth recording as a negative result: the detector added for the stuck-at-0 case does not misfire on a different fault that also produces mass failures.
+
+---
+
 ## 6. Outstanding — hardware
 
 Simulation and synthesis are complete. Everything remaining needs the board.

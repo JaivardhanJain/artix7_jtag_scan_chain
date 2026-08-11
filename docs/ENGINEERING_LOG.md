@@ -1256,3 +1256,146 @@ And nothing in it checks the tracefile against the design on the board. The wron
 Every claim in `docs/RESULTS.md` now has a measurement behind it or an explicit note that it does not. Three examples pass on hardware. Eight of nine findings are resolved, the ninth is documented as unproven in both directions rather than closed by assertion, and the single experiment that would settle it is named.
 
 Outstanding: the `0x8A` re-sweep for D2, and the `TopLevel.vhd` width constants, which are a generated value under version control and have drifted twice.
+
+---
+
+## Entry 022 — 2026-08-11 — Presentation summary: seven findings, five automations
+
+Written for the project presentation, in point form. Kept in the log because it is the clearest short statement of what the project did, and because the deck's numbering differs from `KNOWN_ISSUES.md` and that difference should be recorded rather than discovered later.
+
+### 22.1 Numbering: the deck vs KNOWN_ISSUES.md
+
+The presentation consolidates nine findings into seven. The mapping:
+
+| Deck | KNOWN_ISSUES | Note |
+|---|---|---|
+| 1 | #1 | Phase bit desync |
+| 2 | #2 | TDO launch edge — the open one |
+| 3 | #3 | Mask column ignored |
+| 4 | #7 | Vestigial constraints, surfacing as `UCIO-1` |
+| 5 | — | Vivado holding the cable. Not a numbered issue; it emerged from bench work and is addressed by `program.tcl`'s teardown and the host's error text |
+| 6 | #8 | Host script hygiene |
+| 7 | #9 | No hardware-free testing |
+
+Not in the deck's seven: **#4** (read parser reused widths leaked from the write loop), **#5** (`StringDetector.vhd` missing from the delivery), **#6** (Vivado project state had drifted; the top level was not in the project's file list). All three are fixed and documented; they were cut for time, not because they were resolved differently.
+
+---
+
+### 22.2 The seven findings
+
+**1. Phase bit could not resynchronise** — *fixed, demonstrated on hardware*
+
+- Each vector takes two passes over the cable: inputs down, outputs back.
+- A single bit on the FPGA tracks whose turn it is next.
+- That bit only ever toggled. Its only initial value came from FPGA configuration.
+- So if the host died between the two passes, the FPGA stayed one step out of step **forever**; only reprogramming recovered it.
+- It failed quietly: a desynced harness returns a constant, so **93% of vectors still reported `Success`**.
+- **Fix:** connect `BSCANE2`'s `RESET` and `SEL` outputs, which the original left unwired — two independent paths back to a known state, one asynchronous on TAP reset, one whenever the register is deselected.
+- **Evidence:** controlled A/B. Two bitstreams differing only in those connections, same injected fault: **44/44 versus 41 pass / 3 fail.**
+
+**2. TDO launch edge** — *open, deliberately*
+
+- The FPGA drives TDO combinationally from a rising-edge register.
+- The host's MPSSE read commands also sample on the rising edge.
+- So the value changes on the same edge it is latched. IEEE 1149.1 requires the falling edge precisely to avoid that race.
+- **Not fixed.** It was called a defect, fixed, then withdrawn when a hardware run appeared to disprove it.
+- That run was later traced to an unrelated bug in my own host code — so the evidence used to close it was **contaminated**.
+- Recorded as unproven in both directions rather than closed by assertion.
+- **Deciding experiment, named:** disable the FTDI's divide-by-5 prescaler to reach 30 MHz, and re-sweep.
+
+**3. Mask column ignored** — *fixed, confirmed on hardware*
+
+- The tracefile's third column marks which output bits to compare.
+- It exists for don't-cares: during reset, mid-transition, before a pipeline fills.
+- The original driver read that column into a variable and never used it — every bit compared exactly, on every vector.
+- So any legitimate don't-care would report a **false failure**.
+- **Fix:** apply the mask per bit; report fully-masked vectors as `Skipped`; support `x`/`-` don't-cares.
+- **Evidence:** exactly the two changed lines **predicted in writing beforehand**, against the original author's captured output.
+
+**4. Unconstrained Logical Port (`UCIO-1`)** — *fixed*
+
+- The original top level declared a five-bit `state_out` debug port for a logic analyser.
+- It was never wired to real pins, so bitstream generation failed the DRC and demanded pin locations.
+- The recurring workaround was to auto-assign them in the I/O Planning layout.
+- The constraints file tried to suppress the check instead — which hides the same error in future designs, and does not work under the Runs infrastructure anyway.
+- **Fix:** delete the port entirely. The top level has no ports, so there is nothing to constrain.
+- **Evidence:** builds report **zero** instances of that message with the check *not* suppressed.
+
+**5. Vivado holding the cable** — *fixed*
+
+- Only one process can own the FTDI channel.
+- Vivado leaves `hw_server` and `cs_server` running after programming.
+- The scan script therefore failed with `DEVICE_NOT_OPENED`, reported by the original driver as a raw Python traceback with no indication of the cause.
+- **Fix:** `program.tcl` closes the target and disconnects on **every** exit path, including error paths.
+- **Fix:** the host's error now names the four likely causes in order of probability.
+
+**6. Host script hygiene** — *fixed*
+
+- Positional arguments and hard-coded assumptions.
+- No error handling around opening the device.
+- An IDCODE that was printed but never checked.
+- An unexplained magic number appearing twice.
+- No pass/fail summary across thousands of lines of output.
+- Always exited 0 — so it could never gate a script.
+- **Fix:** rewritten as `scanchain.py` with a proper CLI, actionable errors, a decoded and named part, a summary line with counts and throughput, and a non-zero exit on failure.
+- **Constraint held throughout:** the wire protocol is byte-identical to the original.
+
+**7. No hardware-free testing** — *fixed*
+
+- Every change needed the board to check at all.
+- The scan logic lived inside a file instantiating a Xilinx primitive, so it could not be simulated without vendor libraries.
+- **Fix:** split the logic into `scan_core.vhd`, which contains no vendor primitives.
+- **Fix:** three offline suites around it — a self-checking VHDL testbench, a Python cycle model, and unit tests for the driver.
+- **Result:** 41 driver tests, 19 generator tests and 264 model checks run with no board, no toolchain and no network.
+
+---
+
+### 22.3 The five automations
+
+**1. Generating the wrapper and patching the constants** — `scripts/new_lab.py`
+
+- Parses the DUT's entity declaration, handling one-port-per-line and shared declarations (`A, B : in std_logic_vector(3 downto 0)`).
+- Builds a port list with direction and width for each signal.
+- Applies a fixed layout: clock at bit 0, reset at bit 1 when detected by name, remaining inputs packed above with the first-declared in the highest bits.
+- Emits a complete `DUT.vhd` with the correct slice per port, plus a header comment recording the mapping — which cannot be recovered from the tracefile afterwards.
+- `--patch-toplevel` rewrites the two width constants in `hdl/TopLevel.vhd`.
+- The layout convention was reverse-engineered from the existing hand-written wrappers, then **blind-tested** against lab 4's, written by the lab's author before this script existed. Same layout, independently.
+- 19 offline tests, including that the generator still reproduces every committed wrapper byte for byte.
+
+**2. Building the bitstream** — `scripts/build.bat` + `build.tcl`
+
+- `find_vivado.bat` locates `settings64.bat` via `PATH`, then a `VIVADO_SETTINGS` override, then the usual install roots — so no Vivado command prompt is needed.
+- `build.tcl` creates a throwaway project under `vivado/build/`.
+- Adds the two harness files plus every `.vhd` and `.vhdl` in the example directory.
+- Runs synthesis, implementation and `write_bitstream` headlessly.
+- Every path is wrapped in `[list ...]`, because `add_files` list-parses its argument and silently loses paths containing spaces.
+- After adding sources it **counts what actually landed** and aborts with the full list on a mismatch — that check exists because the space-in-path failure produced an error pointing at the wrong thing entirely.
+
+**3. Programming and releasing the cable** — `scripts/program.bat` + `program.tcl`
+
+- Opens the hardware manager, connects, finds the device.
+- Sets `PROGRAM.FILE` and **reads it back** before programming — a truncated path would otherwise surface as unexplained vector failures rather than an error.
+- A `shutdown` procedure wraps `close_hw_target`, `disconnect_hw_server` and `close_hw_manager` in individual `catch` blocks, and runs on **every** exit path including errors.
+- The wrapper `.bat` kills both background servers if programming fails.
+- Success is announced **before** any bookkeeping, so a failure in recording can never masquerade as a failure to program.
+
+**4. Running the vectors** — `host/scanchain.py`
+
+- Proper CLI in place of positional arguments.
+- Pure logic separated from hardware I/O, so everything above the device class is unit-testable.
+- Tracefile parsed with width validation on every line, reporting the offending line number instead of a bare `IndexError`.
+- Mask applied per bit.
+- MPSSE command stream preserved byte for byte from the original, pinned by tests asserting identical output for every width from 1 to 64 bits.
+- Batches writes over USB; decodes responses back.
+- Writes one line per vector, adding expected value, a per-bit diff marker and the tracefile line number **on failures**.
+- Prints a summary with pass/fail/skipped counts and throughput; exits non-zero if any unmasked vector failed, so it can gate a script.
+- Detects a run where TDO never changed and reports it as **one** fault rather than N, naming the likely cause.
+
+**5. Refusing a wrong tracefile** — spans all three scripts
+
+- `build.tcl` parses the widths out of `TopLevel.vhd` after a successful bitstream, writing `vivado/build/build_info.json` with the example name and part.
+- `program.tcl` copies it to `.programmed.json` **only once the device has actually been programmed** — the build manifest describes the last build, not necessarily what is on the chip.
+- `scanchain.py` compares the recorded widths against the tracefile's and aborts before a single vector is sent, naming the design that is loaded.
+- A missing manifest is deliberately **not** an error: programming through the Vivado GUI is a legitimate workflow.
+- `--no-build-check` overrides it.
+- Honest about its limits: it compares against a record, not the silicon — so it catches a stale bitstream, which is the mistake that actually happens, and not a power cycle.

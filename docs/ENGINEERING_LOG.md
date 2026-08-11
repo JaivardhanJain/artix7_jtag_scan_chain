@@ -1225,3 +1225,34 @@ Same shape as `test_encode_ir_shape` (013) and the 4096 miscount (018): a verifi
 Three examples pass on hardware: `seq1011` 600/600 unmasked, `bcd_adder` 100/100 exhaustive, `string_detector` 44/44. The generated wrapper, the headless build, the manifest, the headless program, the guard and the run all worked end to end, and the guard was demonstrated refusing a real mismatch.
 
 Outstanding: the `0x8A` re-sweep for D2, and the wall-clock figures for both flows, which belong in RESULTS.md §5E once measured.
+
+---
+
+## Entry 021 — 2026-08-11 — The comparison, closed out
+
+Both flows completed on lab 4. **The old flow passed** — correct bitstream, correct results. That is the honest headline and it should stay the headline: the inherited flow works, and this project has never claimed otherwise.
+
+### 21.1 The time ratio, and why it has two numbers
+
+| Scenario | New flow, relative to old |
+|---|---|
+| Wrapper already written, project configured | ~2× faster |
+| Starting from a design file | ~4× faster |
+
+The lab 4 Vivado project arrived fully set up — wrapper written, widths already 8/5, sources added. So the measurement was taken with the old flow at its **best case**, with two of its eight steps already done for free. The ~4× figure extrapolates the cost of doing them, which is the position anyone targeting a new design is in.
+
+Recorded as ratios rather than absolute times because that is what was observed: one run of each, not averaged, with synthesis time near-identical in both. The difference is not compute. It is project selection, hand-editing, a DRC workaround, cable ordering, and recovering from each when it goes wrong.
+
+### 21.2 The time is the smaller half
+
+Four times faster is a number that will get quoted, and it is the less interesting result.
+
+The old flow emitted 100 lines with no summary, no counts, no exit code. Whether it passed had to be established with a separate `findstr` — the same operation that would have shown, three weeks earlier, that `passthrough_4096_output1.txt` was a total failure rather than the clean sweep it was catalogued as (entry 018). A flow that cannot tell you whether it passed cannot be scripted, gated in CI, or handed to a student.
+
+And nothing in it checks the tracefile against the design on the board. The wrong tracefile is the one sitting in the directory the procedure tells you to open, and running it yields a 59% pass rate on a meaningless run (RESULTS §5D).
+
+### 21.3 Where this leaves the project
+
+Every claim in `docs/RESULTS.md` now has a measurement behind it or an explicit note that it does not. Three examples pass on hardware. Eight of nine findings are resolved, the ninth is documented as unproven in both directions rather than closed by assertion, and the single experiment that would settle it is named.
+
+Outstanding: the `0x8A` re-sweep for D2, and the `TopLevel.vhd` width constants, which are a generated value under version control and have drifted twice.

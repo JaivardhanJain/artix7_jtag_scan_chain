@@ -518,7 +518,30 @@ Compare §4.1, where this repository's build reports **`FDCE 1, FDRE 23`**. That
 | Commands | — | 4 |
 | GUI interactions | several | 0 |
 
-Both produce a correct bitstream and correct results for lab 4. The difference is entirely in what can go wrong on the way, and in whether the output tells you it did.
+### 5E.4 Both flows pass. The difference is time and visibility.
+
+**The old flow passed on lab 4.** Correct bitstream, correct results, same design. Nothing here claims otherwise, and a comparison that needed the inherited flow to fail would not be worth making.
+
+Observed ratio, one run of each on the same design and board:
+
+| Scenario | New flow, relative to old |
+|---|---|
+| **Wrapper already written**, project already configured — the case measured here, since `lab4/fri/fri_vivado` arrived fully set up | **~2× faster** |
+| **Starting from a design file**, wrapper and width constants still to be written — the normal case for a new lab | **~4× faster** |
+
+Two caveats, because these are ratios from a single pair of runs rather than averaged stopwatch figures:
+
+**The old flow was measured at its best.** The lab 4 project came pre-configured: `DUT.vhd` written, `TopLevel.vhd` already at 8/5, sources already added. Steps 2 and 3 of the original procedure were free. The ~4× figure extrapolates the cost of doing them, which is the situation anyone targeting a *new* design is actually in.
+
+**Synthesis time is near-identical in both.** Both call the same Vivado on the same design. The difference is not compute — it is project selection, hand-editing, a DRC workaround, cable ordering, and recovering from each of those when they go wrong.
+
+### 5E.5 What the old flow does not tell you
+
+The time ratio is the smaller half of this. The old flow produced 100 lines with no summary, no counts and no exit code. Determining whether it passed required a separate `findstr` — the same command that, applied to `results/passthrough_4096_output1.txt`, would have revealed three weeks earlier that a file catalogued as a clean sweep was a total failure (§1.1).
+
+And nothing in it checks that the tracefile matches the design on the board. The wrong tracefile is the one sitting in the folder the procedure sends you to (§5E.1), and running it produces a majority-passing result that means nothing (§5D).
+
+Both flows produce a correct bitstream and correct results for lab 4. What differs is what can go wrong on the way, and whether the output tells you when it did.
 
 ---
 

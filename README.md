@@ -257,6 +257,8 @@ The wire protocol. `host/scan_bscane2.py` is kept byte-for-byte as inherited, an
 
 ## Roadmap
 
+**Status, 2026-08-11.** Three examples pass on hardware — `seq1011` 600/600 unmasked, `bcd_adder` 100/100 exhaustive, `string_detector` 44/44 — and the whole flow has been run head to head against the original one on the same design and board ([RESULTS.md §5E](docs/RESULTS.md)). Both produce correct results; the difference is what it costs to get there and whether the output tells you when it did not.
+
 The bench work in [docs/BENCH_CHECKLIST.md](docs/BENCH_CHECKLIST.md) is done — build, program, parity, the D1 A/B, the ALU exhaustive run and the divider sweep all passed on the board. Results and evidence tiers: [docs/RESULTS.md](docs/RESULTS.md).
 
 **Next step:** re-run the divider sweep with the FTDI's /5 prescaler disabled (MPSSE `0x8A`). It raises the ceiling from 6 MHz to 30 MHz and is the only experiment that can settle [issue #2](docs/KNOWN_ISSUES.md) in either direction.

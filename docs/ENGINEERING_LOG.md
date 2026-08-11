@@ -93,7 +93,7 @@ The response decoder reads `outputLen`, `no_of_bytes` and `no_of_bits` without c
 
 ### D6 — Vivado project state had drifted *(blocking for reproducibility)*
 
-`Artix7test.xpr`'s source list contained `DUT.vhd`, `FSM.vhd` and `constraints.xdc` — **`Toplevel.vhd` was not listed at all.** The file that is the actual top level was not in the project. Meanwhile `Artix7test_2020.xpr` listed `Toplevel.vhd` and `DUT.vhd` but targeted a different part (`xc7a15tftg256` vs `xc7a35tftg256`), and which one matches the physical board is undocumented.
+`Artix7test.xpr`'s source list contained `DUT.vhd`, `FSM.vhd` and `constraints.xdc` — **`Toplevel.vhd` was not listed at all.** The file that is the actual top level was not in the project. Meanwhile `Artix7test_2020.xpr` listed `Toplevel.vhd` and `DUT.vhd` but targeted a different part (`xc7a15tftg256` vs `xc7a35tftg256`), and which one matches the physical board is undocumented. [**correction, entry 019: the parts are stated backwards here. `Artix7test` is the xc7a15t project; `Artix7test_2020` is the xc7a35t one and therefore the correct one for this board.**]
 
 This is the root cause of the reproducibility problem: build configuration lived in a binary project file that nothing kept in sync with the source tree.
 

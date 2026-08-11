@@ -156,7 +156,7 @@ No such file exists anywhere in the project. `examples/alu/ALU.vhd` is an unrela
 **Severity: blocking for reproducibility.**
 
 - The original `Artix7test.xpr` listed `DUT.vhd`, `FSM.vhd` and `constraints.xdc` — **`Toplevel.vhd` was not in the source list at all.** Synthesis could not have used the file that is the actual top level.
-- Two parallel projects existed for different parts: `Artix7test` (**xc7a35tftg256**) and `Artix7test_2020` (**xc7a15tftg256**). Unclear which matches the physical board.
+- Two parallel projects existed for different parts: `Artix7test` (**xc7a15tftg256**) and `Artix7test_2020` (**xc7a35tftg256**). Unclear which matches the physical board. [**corrected 2026-08-11: these two were recorded the wrong way round here and in log entry 001. Read from the `<Option Name="Part">` line of each `.xpr`, the 2020 project is the xc7a35t one — i.e. the project the original bench procedure tells you to open is the one that matches the board.**]
 - Both are now under the untracked `vivado/` directory. The fix is to stop committing project state entirely and generate it from `scripts/build.tcl`.
 
 > **STATUS: RESOLVED.** Project state is no longer committed; `scripts/build.tcl` generates it and verifies the source count after adding. **The part question is settled: the board is an `xc7a35t`** — Vivado enumerates it as `xc7a35t_0` and the TAP reports IDCODE `0x0362D093`, agreeing with `build.tcl`'s default.
